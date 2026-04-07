@@ -104,6 +104,42 @@
     return n;
   }
 
+  /** Режим повтора — как нижняя панель: стекло + выбранная «таблетка», без нативного select */
+  function spamModeRadiogroup(currentValue, onChange) {
+    const SPAM_OPTS = [
+      ["once", "Один раз"],
+      ["until_read", "До «Прочитал»"],
+      ["i30", "Каждые 30 с"],
+      ["i60", "Каждые 60 с"],
+      ["i120", "Каждые 120 с"],
+      ["custom", "Свой интервал (сек)…"],
+    ];
+    const wrap = el("div", "glass-optlist");
+    wrap.setAttribute("role", "radiogroup");
+    wrap.setAttribute("aria-label", "Режим повтора");
+    function setActive(v) {
+      wrap.querySelectorAll(".glass-opt").forEach(function (btn) {
+        const on = btn.getAttribute("data-value") === v;
+        btn.classList.toggle("glass-opt--on", on);
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      });
+    }
+    SPAM_OPTS.forEach(function (x) {
+      const b = el("button", "glass-opt", x[1]);
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("data-value", x[0]);
+      b.setAttribute("aria-checked", "false");
+      b.addEventListener("click", function () {
+        setActive(x[0]);
+        onChange(x[0]);
+      });
+      wrap.appendChild(b);
+    });
+    setActive(currentValue);
+    return { el: wrap, setValue: setActive };
+  }
+
   function clearMain() {
     if (mainSheet) mainSheet.innerHTML = "";
   }
@@ -305,7 +341,7 @@
       const prev = el("div", "preview", state.newDraft.text);
       f.appendChild(prev);
     } else {
-      const lab = el("label", "label", "Текст");
+      const lab = el("label", "label label--glass", "Текст");
       const ta = document.createElement("textarea");
       ta.className = "input input--area";
       ta.rows = 3;
@@ -318,7 +354,7 @@
     }
 
     {
-      const calBox = el("div", "cal");
+      const calBox = el("div", "cal glass-block");
       const calHead = el("div", "row cal__head");
       const prev = el("button", "btn btn--ghost", "«");
       const next = el("button", "btn btn--ghost", "»");
@@ -380,13 +416,13 @@
         }
         paintCal();
       });
-      f.appendChild(el("label", "label", "Дата"));
+      f.appendChild(el("label", "label label--glass", "Дата"));
       f.appendChild(calBox);
       paintCal().catch(function (e) {
         showErr(String(e.message || e));
       });
 
-      const tLab = el("label", "label", "Время (16:43 или 16 43)");
+      const tLab = el("label", "label label--glass", "Время (16:43 или 16 43)");
       const tIn = el("input", "input");
       tIn.value = state.newDraft.time;
       tIn.addEventListener("input", function () {
@@ -408,24 +444,10 @@
       f.appendChild(chips);
     }
 
-    f.appendChild(el("label", "label", "Повтор"));
-    const spamSel = document.createElement("select");
-    spamSel.className = "input input--select";
-    spamSel.setAttribute("aria-label", "Режим повтора");
-    const spamOpts = [
-      ["once", "Один раз"],
-      ["until_read", "До «Прочитал»"],
-      ["i30", "Каждые 30 с"],
-      ["i60", "Каждые 60 с"],
-      ["i120", "Каждые 120 с"],
-      ["custom", "Свой интервал (сек)…"],
-    ];
-    spamOpts.forEach(function (x) {
-      const o = document.createElement("option");
-      o.value = x[0];
-      o.textContent = x[1];
-      if (state.newDraft.spam === x[0]) o.selected = true;
-      spamSel.appendChild(o);
+    f.appendChild(el("label", "label label--glass", "Повтор"));
+    const spamRg = spamModeRadiogroup(state.newDraft.spam, function (v) {
+      state.newDraft.spam = v;
+      syncSpamCustom();
     });
     const custWrap = el("div", "spam-custom");
     const cust = el("input", "input");
@@ -444,16 +466,12 @@
     );
     custWrap.appendChild(cust);
     function syncSpamCustom() {
-      const on = spamSel.value === "custom";
+      const on = state.newDraft.spam === "custom";
       custWrap.hidden = !on;
       cust.disabled = !on;
     }
-    spamSel.addEventListener("change", function () {
-      state.newDraft.spam = spamSel.value;
-      syncSpamCustom();
-    });
     syncSpamCustom();
-    f.appendChild(spamSel);
+    f.appendChild(spamRg.el);
     f.appendChild(custWrap);
 
     const submit = el("button", "btn", "Создать");
@@ -574,7 +592,7 @@
 
       if (state.editMode === "text") {
         const panel = el("div", "panel");
-        panel.appendChild(el("p", "label", "Новый текст"));
+        panel.appendChild(el("p", "label label--glass", "Новый текст"));
         const ta = document.createElement("textarea");
         ta.className = "input input--area";
         ta.value = r.text;
@@ -606,8 +624,8 @@
 
       if (state.editMode === "datetime") {
         const panel = el("div", "panel");
-        panel.appendChild(el("p", "label", "Новая дата и время"));
-        const calBox = el("div", "cal");
+        panel.appendChild(el("p", "label label--glass", "Новая дата и время"));
+        const calBox = el("div", "cal glass-block");
         const calHead = el("div", "row cal__head");
         const prev = el("button", "btn btn--ghost", "«");
         const next = el("button", "btn btn--ghost", "»");
@@ -700,24 +718,11 @@
 
       if (state.editMode === "spam") {
         const panel = el("div", "panel");
-        panel.appendChild(el("label", "label", "Режим повтора"));
+        panel.appendChild(el("label", "label label--glass", "Режим повтора"));
         let pick = r.spam_variant === "custom" ? "custom" : r.spam_variant;
-        const spamSel = document.createElement("select");
-        spamSel.className = "input input--select";
-        const edOpts = [
-          ["once", "Один раз"],
-          ["until_read", "До «Прочитал»"],
-          ["i30", "Каждые 30 с"],
-          ["i60", "Каждые 60 с"],
-          ["i120", "Каждые 120 с"],
-          ["custom", "Свой интервал (сек)…"],
-        ];
-        edOpts.forEach(function (x) {
-          const o = document.createElement("option");
-          o.value = x[0];
-          o.textContent = x[1];
-          if (pick === x[0]) o.selected = true;
-          spamSel.appendChild(o);
+        const spamRg = spamModeRadiogroup(pick, function (v) {
+          pick = v;
+          syncEd();
         });
         const ci = el("input", "input");
         ci.type = "number";
@@ -727,20 +732,18 @@
         custWrap.appendChild(el("small", "hint", "Секунды для своего интервала"));
         custWrap.appendChild(ci);
         function syncEd() {
-          pick = spamSel.value;
           const on = pick === "custom";
           custWrap.hidden = !on;
           ci.disabled = !on;
         }
-        spamSel.addEventListener("change", syncEd);
         syncEd();
-        panel.appendChild(spamSel);
+        panel.appendChild(spamRg.el);
         panel.appendChild(custWrap);
         const ok = el("button", "btn", "Сохранить");
         ok.type = "button";
         ok.addEventListener("click", async function () {
           try {
-            const pv = spamSel.value;
+            const pv = pick;
             await api("/api/reminders/" + state.detailId + "/spam", {
               method: "PATCH",
               body: JSON.stringify({
@@ -788,8 +791,8 @@
       me = await api("/api/me");
       tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
 
-      box.appendChild(el("p", "label", "Часовой пояс (смещение от UTC)"));
-      const grid = el("div", "tzgrid");
+      box.appendChild(el("p", "label label--glass", "Часовой пояс (смещение от UTC)"));
+      const grid = el("div", "tzgrid glass-block");
       for (let h = -12; h <= 14; h++) {
         const b = el("button", "tz", h === 0 ? "0" : (h > 0 ? "+" + h : String(h)));
         b.type = "button";
