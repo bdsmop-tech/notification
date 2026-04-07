@@ -142,6 +142,7 @@ def _spam_custom_error_kb(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardM
     rows: list[list[InlineKeyboardButton]] = []
     if hp is not None:
         rows.append([InlineKeyboardButton("« К истории", callback_data=f"hhist:{hp}")])
+    rows.append([InlineKeyboardButton("« К режиму повтора", callback_data="ns:bspam")])
     rows.append([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")])
     return InlineKeyboardMarkup(rows)
 
@@ -335,6 +336,22 @@ async def conv_new_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return ASK_DATE
 
 
+async def conv_time_back_to_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """« К дате» — вернуться к календарю (создание / повтор из истории)."""
+    q = update.callback_query
+    if q is None or update.effective_user is None:
+        return ASK_TIME
+    await q.answer()
+    context.user_data.pop("picked_date", None)
+    context.user_data.pop("fire_at", None)
+    y, m = default_calendar_anchor()
+    await q.edit_message_text(
+        "Выбери дату:",
+        reply_markup=_new_calendar_kb(y, m, history_back_page=_hist_page(context)),
+    )
+    return ASK_DATE
+
+
 async def conv_time_chip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     if q is None or q.data is None or update.effective_user is None:
@@ -401,17 +418,49 @@ async def new_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ASK_SPAM
 
 
+async def conv_spam_back_to_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """« К времени» — с шага выбора повтора назад к времени."""
+    q = update.callback_query
+    if q is None or update.effective_user is None:
+        return ASK_SPAM
+    await q.answer()
+    picked = context.user_data.get("picked_date")
+    if not isinstance(picked, date):
+        return ASK_SPAM
+    context.user_data.pop("fire_at", None)
+    tz = await get_user_zone(update.effective_user.id)
+    await q.edit_message_text(
+        f"Дата: {picked.strftime('%d.%m.%Y')} ({format_tz_label(tz)}).\n"
+        "Отправь время через пробел, например: 16 43 — или выбери быстрый вариант:",
+        reply_markup=_kb_time_chips(context),
+    )
+    return ASK_TIME
+
+
+async def conv_spam_custom_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """« К режиму повтора» — с ввода секунд назад к выбору ns:."""
+    q = update.callback_query
+    if q is None or update.effective_user is None:
+        return ASK_SPAM_CUSTOM
+    await q.answer()
+    await q.edit_message_text("Как повторять?", reply_markup=_kb_spam(context))
+    return ASK_SPAM
+
+
 async def conv_spam_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     if q is None or q.data is None or update.effective_user is None:
         return ASK_SPAM
     await q.answer()
     data = q.data
+    if data == "ns:bspam":
+        return ASK_SPAM
     if data == "ns:custom":
         custom_rows: list[list[InlineKeyboardButton]] = []
         hp = _hist_page(context)
         if hp is not None:
             custom_rows.append([InlineKeyboardButton("« К истории", callback_data=f"hhist:{hp}")])
+        custom_rows.append([InlineKeyboardButton("« К режиму повтора", callback_data="ns:bspam")])
         custom_rows.append([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")])
         await q.edit_message_text(
             "Отправь одно число — интервал в секундах (минимум "
@@ -1309,6 +1358,28 @@ async def on_nt_standalone(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if q is None or q.data is None or update.effective_user is None:
         return
     await q.answer()
+    if q.data == "nt:back":
+        rid_s = context.user_data.get("waiting_edit_time")
+        edit_rid = context.user_data.get("edit_reminder_id")
+        if rid_s and edit_rid:
+            try:
+                rid = UUID(edit_rid)
+            except ValueError:
+                return
+            r = await _get_reminder_for_user(rid, update.effective_user.id)
+            if r is None or not r.active:
+                await q.edit_message_text("Не найдено.")
+                return
+            context.user_data.pop("waiting_edit_date", None)
+            context.user_data.pop("waiting_edit_time", None)
+            uid = update.effective_user.id
+            _clear_pending(uid)
+            _mark_pending(uid)
+            context.user_data["edit_reminder_id"] = str(rid)
+            y, mo = default_calendar_anchor()
+            kb = build_calendar_keyboard(y, mo, "ed")
+            await q.edit_message_text("Новая дата:", reply_markup=kb)
+        return
     rid_s = context.user_data.get("waiting_edit_time")
     if not rid_s:
         return
@@ -1389,13 +1460,18 @@ def register_handlers(app: Application) -> None:
                 CallbackQueryHandler(conv_new_calendar, pattern=r"^(?:nd[pnd]:\d+|noop)$"),
             ],
             ASK_TIME: [
+                CallbackQueryHandler(conv_time_back_to_date, pattern=r"^nt:back$"),
                 CallbackQueryHandler(conv_time_chip, pattern=r"^nt:"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_time),
             ],
             ASK_SPAM: [
+                CallbackQueryHandler(conv_spam_back_to_time, pattern=r"^ns:bt$"),
                 CallbackQueryHandler(conv_spam_select, pattern=r"^ns:"),
             ],
-            ASK_SPAM_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, conv_spam_custom_msg)],
+            ASK_SPAM_CUSTOM: [
+                CallbackQueryHandler(conv_spam_custom_back, pattern=r"^ns:bspam$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, conv_spam_custom_msg),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cmd_cancel),

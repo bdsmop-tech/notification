@@ -38,6 +38,7 @@ def time_chips_keyboard(*, history_back_page: int | None = None) -> InlineKeyboa
             InlineKeyboardButton("21:00", callback_data="nt:2100"),
         ],
         [InlineKeyboardButton("✍️ Ввести вручную (16 43)", callback_data="nt:manual")],
+        [InlineKeyboardButton("« К дате", callback_data="nt:back")],
     ]
     if history_back_page is not None:
         rows.append(
@@ -64,6 +65,7 @@ def spam_mode_keyboard(*, history_back_page: int | None = None) -> InlineKeyboar
             InlineKeyboardButton("🔁 Каждые 120 сек", callback_data="ns:120"),
         ],
         [InlineKeyboardButton("⌨️ Свой интервал (сек)…", callback_data="ns:custom")],
+        [InlineKeyboardButton("« К времени", callback_data="ns:bt")],
     ]
     if history_back_page is not None:
         rows.append(
