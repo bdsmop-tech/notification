@@ -3,13 +3,25 @@ import logging
 import sys
 
 from telegram import Update
-from telegram.ext import Application
+from telegram.error import Conflict
+from telegram.ext import Application, ContextTypes
 from telegram.request import HTTPXRequest
 
 from bot.config import BOT_TOKEN
 from bot.database import init_db
 from bot.handlers import register_handlers
 from bot.reminder_worker import reminder_loop
+
+
+async def _on_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    err = context.error
+    if isinstance(err, Conflict):
+        logging.error(
+            "Telegram Conflict: два процесса одновременно вызывают getUpdates с этим BOT_TOKEN. "
+            "Останови локальный бот, второй деплой или лишнюю реплику; один токен — один poller."
+        )
+        return
+    logging.error("Необработанное исключение", exc_info=err)
 
 
 def main() -> None:
@@ -20,6 +32,8 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     async def post_init(app: Application) -> None:
+        # Polling не совместим с активным webhook; снимаем webhook на всякий случай.
+        await app.bot.delete_webhook(drop_pending_updates=True)
         await init_db()
         asyncio.create_task(reminder_loop(app))
 
@@ -42,6 +56,7 @@ def main() -> None:
         .build()
     )
     register_handlers(app)
+    app.add_error_handler(_on_error)
     print("Bot polling…", file=sys.stderr)
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
