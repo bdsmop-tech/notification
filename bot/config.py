@@ -23,3 +23,5 @@ if DATABASE_URL.startswith("postgres://"):
 DEFAULT_TZ = ZoneInfo(os.getenv("DEFAULT_TZ", "Europe/Moscow"))
 REMINDER_POLL_SECONDS = float(os.getenv("REMINDER_POLL_SECONDS", "5"))
 MIN_SPAM_INTERVAL_SECONDS = int(os.getenv("MIN_SPAM_INTERVAL_SECONDS", "15"))
+# Интервал для режима «до Прочитал»
+READ_ACK_INTERVAL_SECONDS = int(os.getenv("READ_ACK_INTERVAL_SECONDS", "30"))

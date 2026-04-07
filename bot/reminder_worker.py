@@ -7,15 +7,32 @@ from sqlalchemy import select, update
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 
-from bot.config import MIN_SPAM_INTERVAL_SECONDS, REMINDER_POLL_SECONDS
+from bot.config import MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS, REMINDER_POLL_SECONDS
 from bot.database import SessionLocal
-from bot.models import Reminder
+from bot.models import Reminder, UserSettings
+from bot.quiet_hours import next_quiet_end_utc
+from bot.user_prefs import get_user_zone
 
 log = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _firing_keyboard(r: Reminder) -> InlineKeyboardMarkup:
+    rows = []
+    if r.spam_until_read:
+        rows.append([InlineKeyboardButton("✅ Прочитал", callback_data=f"ack:{r.id}")])
+    rows.append([InlineKeyboardButton("Стоп", callback_data=f"stop:{r.id}")])
+    rows.append(
+        [
+            InlineKeyboardButton("+5 мин", callback_data=f"snz:{r.id}:5"),
+            InlineKeyboardButton("+1 ч", callback_data=f"snz:{r.id}:60"),
+            InlineKeyboardButton("Завтра", callback_data=f"snz:{r.id}:1440"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 async def _process_due_reminders(app: Application) -> None:
@@ -29,34 +46,50 @@ async def _process_due_reminders(app: Application) -> None:
             return
 
         for r in due:
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "Стоп",
-                            callback_data=f"stop:{r.id}",
-                        )
-                    ]
-                ]
-            )
-            text = f"⏰ Напоминание:\n\n{r.text}"
+            prefs = await session.get(UserSettings, r.user_id)
+            tz = await get_user_zone(r.user_id)
+            if prefs and prefs.quiet_hours_enabled:
+                nq = next_quiet_end_utc(
+                    now,
+                    tz,
+                    prefs.quiet_start_hour,
+                    prefs.quiet_end_hour,
+                )
+                if nq is not None:
+                    await session.execute(
+                        update(Reminder).where(Reminder.id == r.id).values(fire_at=nq)
+                    )
+                    continue
+
+            tag = ""
+            if r.spam_until_read:
+                tag = f" (повтор каждые {READ_ACK_INTERVAL_SECONDS} сек до «Прочитал»)"
+            elif r.spam_interval_seconds:
+                tag = f" (повтор каждые {r.spam_interval_seconds} сек)"
+
+            text = f"⏰ Напоминание{tag}:\n\n{r.text}"
             try:
                 await app.bot.send_message(
                     chat_id=r.chat_id,
                     text=text,
-                    reply_markup=keyboard,
+                    reply_markup=_firing_keyboard(r),
                 )
             except Exception as e:
                 log.exception("send_message failed for reminder %s: %s", r.id, e)
                 await session.execute(
                     update(Reminder)
                     .where(Reminder.id == r.id)
-                    .values(active=False)
+                    .values(active=False, closed_at=now)
                 )
                 continue
 
-            if r.spam_interval_seconds and r.spam_interval_seconds > 0:
-                interval = max(r.spam_interval_seconds, MIN_SPAM_INTERVAL_SECONDS)
+            repeating = bool(r.spam_interval_seconds and r.spam_interval_seconds > 0) or r.spam_until_read
+            if repeating:
+                if r.spam_until_read:
+                    base = r.spam_interval_seconds or READ_ACK_INTERVAL_SECONDS
+                    interval = max(base, READ_ACK_INTERVAL_SECONDS, MIN_SPAM_INTERVAL_SECONDS)
+                else:
+                    interval = max(r.spam_interval_seconds, MIN_SPAM_INTERVAL_SECONDS)
                 await session.execute(
                     update(Reminder)
                     .where(Reminder.id == r.id)
@@ -66,7 +99,7 @@ async def _process_due_reminders(app: Application) -> None:
                 await session.execute(
                     update(Reminder)
                     .where(Reminder.id == r.id)
-                    .values(active=False)
+                    .values(active=False, closed_at=now)
                 )
 
         await session.commit()
@@ -89,7 +122,9 @@ async def stop_reminder_by_id(reminder_id: UUID, user_id: int) -> bool:
         if r is None or r.user_id != user_id:
             return False
         await session.execute(
-            update(Reminder).where(Reminder.id == reminder_id).values(active=False)
+            update(Reminder)
+            .where(Reminder.id == reminder_id)
+            .values(active=False, closed_at=_utcnow())
         )
         await session.commit()
         return True
