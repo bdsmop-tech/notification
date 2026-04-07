@@ -66,12 +66,13 @@
   }
 
   async function api(path, opts) {
-    const jsonBody = opts && opts.body && typeof opts.body === "string";
+    const o = opts || {};
+    const jsonBody = o.body && typeof o.body === "string";
     const h = authHeaders(!!jsonBody);
     if (!h) throw new Error("Откройте из Telegram.");
     const r = await fetch(path, {
-      ...opts,
-      headers: { ...h, ...(opts.headers || {}) },
+      ...o,
+      headers: { ...h, ...(o.headers || {}) },
     });
     const text = await r.text();
     let body = null;
