@@ -1060,6 +1060,18 @@ async def on_edit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await q.edit_message_text("Отменено.", reply_markup=main_menu_keyboard())
 
 
+async def on_orphan_new_calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Сессия /new уже не активна, а callback от календаря пришёл — ответить, иначе крутится индикатор."""
+    q = update.callback_query
+    if q is None:
+        return
+    await q.answer()
+    await q.edit_message_text(
+        "Сессия создания напоминания сброшена. Открой меню и нажми «Новое».",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
 def register_handlers(app: Application) -> None:
     conv = ConversationHandler(
         entry_points=[
@@ -1089,7 +1101,11 @@ def register_handlers(app: Application) -> None:
             ),
         ],
     )
+    # Важно: ConversationHandler раньше любого menu:* — иначе кнопки меню перехватываются до диалога,
+    # а fallback разговора (conv_menu_leave) не срабатывает.
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(conv)
+    app.add_handler(CallbackQueryHandler(on_orphan_new_calendar_callback, pattern=r"^nd[pnd]:"))
     app.add_handler(
         CallbackQueryHandler(
             on_menu_callback,
@@ -1097,7 +1113,6 @@ def register_handlers(app: Application) -> None:
         )
     )
     app.add_handler(CallbackQueryHandler(on_stq_toggle, pattern=r"^stq:toggle$"))
-    app.add_handler(conv)
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("timezone", cmd_timezone))
