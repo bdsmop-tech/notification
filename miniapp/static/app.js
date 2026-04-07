@@ -244,51 +244,28 @@
       if (!data.reminders.length) {
         box.appendChild(el("p", "hint", "История пуста."));
       } else {
-        box.appendChild(
-          el("p", "hint", "Выберите запись в списке и нажмите «Повторить» — откроется создание с тем же текстом."),
-        );
-        const sel = document.createElement("select");
-        sel.className = "input input--select";
-        sel.setAttribute("aria-label", "Запись из истории");
-        const opt0 = document.createElement("option");
-        opt0.value = "";
-        opt0.textContent = "— выберите запись —";
-        sel.appendChild(opt0);
         data.reminders.forEach(function (r) {
-          const o = document.createElement("option");
-          o.value = r.id;
+          const li = el("button", "card");
           const sub = r.closed_at_local ? " → " + r.closed_at_local : "";
-          let line = r.fire_at_local + sub + " — " + r.text;
-          if (line.length > 118) line = line.slice(0, 115) + "…";
-          o.textContent = line;
-          sel.appendChild(o);
-        });
-        const btn = el("button", "btn", "Повторить");
-        btn.type = "button";
-        btn.disabled = true;
-        sel.addEventListener("change", function () {
-          btn.disabled = !sel.value;
-        });
-        btn.addEventListener("click", function () {
-          const id = sel.value;
-          if (!id) return;
-          const r = data.reminders.find(function (x) {
-            return x.id === id;
+          const t = el("span", "card__time", r.fire_at_local + sub);
+          const tx = el("span", "card__text", r.text);
+          li.appendChild(t);
+          li.appendChild(tx);
+          li.type = "button";
+          li.addEventListener("click", function () {
+            state.newDraft.from_history_id = r.id;
+            state.newDraft.text = r.text;
+            state.newDraft.date = "";
+            state.newDraft.time = "";
+            state.newDraft.spam = "once";
+            state.view = "new";
+            tabActive();
+            render({
+              tabDir: TAB_ORDER.indexOf("new") - TAB_ORDER.indexOf("history"),
+            });
           });
-          if (!r) return;
-          state.newDraft.from_history_id = r.id;
-          state.newDraft.text = r.text;
-          state.newDraft.date = "";
-          state.newDraft.time = "";
-          state.newDraft.spam = "once";
-          state.view = "new";
-          tabActive();
-          render({
-            tabDir: TAB_ORDER.indexOf("new") - TAB_ORDER.indexOf("history"),
-          });
+          box.appendChild(li);
         });
-        box.appendChild(sel);
-        box.appendChild(btn);
       }
       const nav = el("div", "row");
       if (data.page > 0) {
@@ -311,19 +288,6 @@
     } catch (e) {
       box.appendChild(el("p", "err", String(e.message || e)));
     }
-  }
-
-  function spamField(name, value, label) {
-    const id = "sp_" + name + "_" + value;
-    const w = el("label", "radio");
-    const inp = document.createElement("input");
-    inp.type = "radio";
-    inp.name = name;
-    inp.value = value;
-    inp.id = id;
-    w.appendChild(inp);
-    w.appendChild(document.createTextNode(" " + label));
-    return w;
   }
 
   async function renderNew() {
@@ -440,27 +404,26 @@
       f.appendChild(chips);
     }
 
-    f.appendChild(el("p", "label", "Повтор"));
-    const spamRow = el("div", "spam");
-    const g = "spam_new";
-    const opts = [
+    f.appendChild(el("label", "label", "Повтор"));
+    const spamSel = document.createElement("select");
+    spamSel.className = "input input--select";
+    spamSel.setAttribute("aria-label", "Режим повтора");
+    const spamOpts = [
       ["once", "Один раз"],
       ["until_read", "До «Прочитал»"],
       ["i30", "Каждые 30 с"],
       ["i60", "Каждые 60 с"],
       ["i120", "Каждые 120 с"],
-      ["custom", "Свой интервал (сек)"],
+      ["custom", "Свой интервал (сек)…"],
     ];
-    opts.forEach(function (x) {
-      const w = spamField(g, x[0], x[1]);
-      const inp = w.querySelector("input");
-      if (state.newDraft.spam === x[0]) inp.checked = true;
-      inp.addEventListener("change", function () {
-        if (inp.checked) state.newDraft.spam = x[0];
-      });
-      spamRow.appendChild(w);
+    spamOpts.forEach(function (x) {
+      const o = document.createElement("option");
+      o.value = x[0];
+      o.textContent = x[1];
+      if (state.newDraft.spam === x[0]) o.selected = true;
+      spamSel.appendChild(o);
     });
-    f.appendChild(spamRow);
+    const custWrap = el("div", "spam-custom");
     const cust = el("input", "input");
     cust.type = "number";
     cust.min = "0";
@@ -468,8 +431,26 @@
     cust.addEventListener("input", function () {
       state.newDraft.customSpam = parseInt(cust.value, 10) || 0;
     });
-    f.appendChild(el("small", "hint", "Для «Свой интервал» — секунды (мин. " + (me && me.min_spam_interval_seconds ? me.min_spam_interval_seconds : 15) + ")"));
-    f.appendChild(cust);
+    custWrap.appendChild(
+      el(
+        "small",
+        "hint",
+        "Секунды (мин. " + (me && me.min_spam_interval_seconds ? me.min_spam_interval_seconds : 15) + ")",
+      ),
+    );
+    custWrap.appendChild(cust);
+    function syncSpamCustom() {
+      const on = spamSel.value === "custom";
+      custWrap.hidden = !on;
+      cust.disabled = !on;
+    }
+    spamSel.addEventListener("change", function () {
+      state.newDraft.spam = spamSel.value;
+      syncSpamCustom();
+    });
+    syncSpamCustom();
+    f.appendChild(spamSel);
+    f.appendChild(custWrap);
 
     const submit = el("button", "btn", "Создать");
     submit.type = "button";
@@ -715,44 +696,52 @@
 
       if (state.editMode === "spam") {
         const panel = el("div", "panel");
-        panel.appendChild(el("p", "label", "Режим повтора"));
+        panel.appendChild(el("label", "label", "Режим повтора"));
         let pick = r.spam_variant === "custom" ? "custom" : r.spam_variant;
-        let cust = r.spam_interval_seconds || 60;
-        const spamRow = el("div", "spam");
-        const g = "spam_ed";
-        const opts = [
+        const spamSel = document.createElement("select");
+        spamSel.className = "input input--select";
+        const edOpts = [
           ["once", "Один раз"],
           ["until_read", "До «Прочитал»"],
-          ["i30", "30 с"],
-          ["i60", "60 с"],
-          ["i120", "120 с"],
-          ["custom", "Свой (сек)"],
+          ["i30", "Каждые 30 с"],
+          ["i60", "Каждые 60 с"],
+          ["i120", "Каждые 120 с"],
+          ["custom", "Свой интервал (сек)…"],
         ];
-        opts.forEach(function (x) {
-          const w = spamField(g, x[0], x[1]);
-          const inp = w.querySelector("input");
-          if (pick === x[0]) inp.checked = true;
-          inp.addEventListener("change", function () {
-            if (inp.checked) pick = x[0];
-          });
-          spamRow.appendChild(w);
+        edOpts.forEach(function (x) {
+          const o = document.createElement("option");
+          o.value = x[0];
+          o.textContent = x[1];
+          if (pick === x[0]) o.selected = true;
+          spamSel.appendChild(o);
         });
-        panel.appendChild(spamRow);
         const ci = el("input", "input");
         ci.type = "number";
         ci.min = "0";
-        ci.value = String(cust);
-        panel.appendChild(el("small", "hint", "Для «Свой» укажите секунды"));
-        panel.appendChild(ci);
+        ci.value = String(r.spam_interval_seconds || 60);
+        const custWrap = el("div", "spam-custom");
+        custWrap.appendChild(el("small", "hint", "Секунды для своего интервала"));
+        custWrap.appendChild(ci);
+        function syncEd() {
+          pick = spamSel.value;
+          const on = pick === "custom";
+          custWrap.hidden = !on;
+          ci.disabled = !on;
+        }
+        spamSel.addEventListener("change", syncEd);
+        syncEd();
+        panel.appendChild(spamSel);
+        panel.appendChild(custWrap);
         const ok = el("button", "btn", "Сохранить");
         ok.type = "button";
         ok.addEventListener("click", async function () {
           try {
+            const pv = spamSel.value;
             await api("/api/reminders/" + state.detailId + "/spam", {
               method: "PATCH",
               body: JSON.stringify({
-                spam_variant: pick,
-                spam_interval_seconds: pick === "custom" ? parseInt(ci.value, 10) || 0 : 0,
+                spam_variant: pv,
+                spam_interval_seconds: pv === "custom" ? parseInt(ci.value, 10) || 0 : 0,
               }),
             });
             state.editMode = null;
