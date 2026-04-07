@@ -31,13 +31,9 @@
   };
 
   function theme() {
-    const p = tg.themeParams || {};
-    document.body.style.backgroundColor = p.bg_color || "#1c1c1e";
-    document.body.style.color = p.text_color || "#f2f2f7";
-    document.documentElement.style.setProperty("--btn", p.button_color || "#0a84ff");
-    document.documentElement.style.setProperty("--btn-t", p.button_text_color || "#fff");
-    document.documentElement.style.setProperty("--hint", p.hint_color || "#8e8e93");
-    document.documentElement.style.setProperty("--sec", p.secondary_bg_color || "#2c2c2e");
+    /* Палитра задаётся в style.css (Xbox / glass); не заливаем body цветами Telegram. */
+    document.body.style.backgroundColor = "";
+    document.body.style.color = "";
   }
   if (tg.onEvent) tg.onEvent("themeChanged", theme);
   theme();
