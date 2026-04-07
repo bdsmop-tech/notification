@@ -5,9 +5,13 @@
 
   const titleEl = document.getElementById("screenTitle");
   const tzLine = document.getElementById("tzLine");
-  const mainEl = document.getElementById("main");
+  const mainRoot = document.getElementById("main");
+  const mainSheet = document.getElementById("mainSheet");
   const globalErr = document.getElementById("globalErr");
   const tabs = document.getElementById("tabs");
+
+  /** Вкладки нижней панели — для свайпа и анимации перелистывания */
+  const TAB_ORDER = ["active", "today", "history", "new", "settings"];
 
   let me = null;
 
@@ -101,7 +105,7 @@
   }
 
   function clearMain() {
-    mainEl.innerHTML = "";
+    if (mainSheet) mainSheet.innerHTML = "";
   }
 
   function setTitle(t) {
@@ -112,6 +116,10 @@
     tabs.querySelectorAll(".tab").forEach(function (b) {
       b.classList.toggle("tab--on", b.getAttribute("data-view") === state.view);
     });
+    const on = tabs.querySelector(".tab--on");
+    if (on && typeof on.scrollIntoView === "function") {
+      on.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    }
   }
 
   async function loadMe() {
@@ -165,7 +173,7 @@
     const box = el("div", "stack");
     const status = el("p", "hint", "Загрузка…");
     box.appendChild(status);
-    mainEl.appendChild(box);
+    mainSheet.appendChild(box);
     try {
       const data = await api("/api/reminders/active?page=" + state.activePage);
       box.innerHTML = "";
@@ -207,7 +215,7 @@
     setTitle("Сегодня");
     showErr("");
     const box = el("div", "stack");
-    mainEl.appendChild(box);
+    mainSheet.appendChild(box);
     try {
       const data = await api("/api/reminders/today");
       if (!data.reminders.length) {
@@ -230,7 +238,7 @@
     setTitle("История");
     showErr("");
     const box = el("div", "stack");
-    mainEl.appendChild(box);
+    mainSheet.appendChild(box);
     try {
       const data = await api("/api/reminders/history?page=" + state.historyPage);
       if (!data.reminders.length) {
@@ -485,7 +493,7 @@
       f.appendChild(cancel);
     }
 
-    mainEl.appendChild(f);
+    mainSheet.appendChild(f);
   }
 
   async function renderDetail() {
@@ -493,7 +501,7 @@
     showErr("");
     clearMain();
     const box = el("div", "stack");
-    mainEl.appendChild(box);
+    mainSheet.appendChild(box);
     try {
       const r = await api("/api/reminders/" + state.detailId);
       box.appendChild(el("p", "detail__time", r.fire_at_local + fmtSpam(r)));
@@ -757,7 +765,7 @@
     showErr("");
     clearMain();
     const box = el("div", "stack");
-    mainEl.appendChild(box);
+    mainSheet.appendChild(box);
     try {
       me = await api("/api/me");
       tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
@@ -839,16 +847,13 @@
       tabActive();
       render();
     });
-    mainEl.appendChild(box);
-    mainEl.appendChild(back);
+    mainSheet.appendChild(box);
+    mainSheet.appendChild(back);
   }
 
-  function render() {
-    showErr("");
-    tabActive();
-    clearMain();
+  function renderContent() {
     if (!tg.initData) {
-      mainEl.appendChild(el("p", "err", "Откройте мини-приложение из Telegram."));
+      mainSheet.appendChild(el("p", "err", "Откройте мини-приложение из Telegram."));
       return;
     }
     if (state.view === "active") renderActive();
@@ -860,18 +865,93 @@
     else if (state.view === "detail") renderDetail();
   }
 
+  function render(opts) {
+    opts = opts || {};
+    if (!mainSheet) return;
+    showErr("");
+    tabActive();
+    const dir = opts.tabDir;
+    const useAnim =
+      typeof dir === "number" &&
+      dir !== 0 &&
+      TAB_ORDER.indexOf(state.view) >= 0 &&
+      mainSheet.children.length > 0;
+
+    function paint() {
+      clearMain();
+      renderContent();
+    }
+
+    if (useAnim) {
+      const exit = dir > 0 ? "main__sheet--exit-left" : "main__sheet--exit-right";
+      const enter = dir > 0 ? "main__sheet--enter-from-right" : "main__sheet--enter-from-left";
+      mainSheet.classList.add(exit);
+      window.setTimeout(function () {
+        paint();
+        mainSheet.classList.remove("main__sheet--exit-left", "main__sheet--exit-right");
+        mainSheet.classList.add(enter);
+        window.setTimeout(function () {
+          mainSheet.classList.remove("main__sheet--enter-from-right", "main__sheet--enter-from-left");
+        }, 320);
+      }, 200);
+      return;
+    }
+    paint();
+  }
+
   tabs.addEventListener("click", function (ev) {
     const t = ev.target.closest(".tab");
     if (!t) return;
     const v = t.getAttribute("data-view");
     if (!v) return;
+    const prev = state.view;
+    const iPrev = TAB_ORDER.indexOf(prev);
+    const iNext = TAB_ORDER.indexOf(v);
     state.view = v;
     state.detailId = null;
     state.editMode = null;
     if (v === "active") state.activePage = 0;
     if (v === "history") state.historyPage = 0;
-    render();
+    const tabDir = iPrev >= 0 && iNext >= 0 ? iNext - iPrev : 0;
+    render({ tabDir: tabDir });
   });
+
+  if (mainRoot) {
+    let touchX = 0;
+    mainRoot.addEventListener(
+      "touchstart",
+      function (e) {
+        touchX = e.changedTouches[0].clientX;
+      },
+      { passive: true },
+    );
+    mainRoot.addEventListener(
+      "touchend",
+      function (e) {
+        if (state.view === "detail" || state.view === "help") return;
+        const idx = TAB_ORDER.indexOf(state.view);
+        if (idx < 0) return;
+        const dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) < 50) return;
+        if (dx < 0 && idx < TAB_ORDER.length - 1) {
+          state.view = TAB_ORDER[idx + 1];
+          state.detailId = null;
+          state.editMode = null;
+          if (state.view === "active") state.activePage = 0;
+          if (state.view === "history") state.historyPage = 0;
+          render({ tabDir: 1 });
+        } else if (dx > 0 && idx > 0) {
+          state.view = TAB_ORDER[idx - 1];
+          state.detailId = null;
+          state.editMode = null;
+          if (state.view === "active") state.activePage = 0;
+          if (state.view === "history") state.historyPage = 0;
+          render({ tabDir: -1 });
+        }
+      },
+      { passive: true },
+    );
+  }
 
   loadMe().then(render);
 })();
