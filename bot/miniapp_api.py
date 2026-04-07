@@ -1,6 +1,8 @@
 """
-HTTP-сервер Mini App: отдаёт статику из miniapp/ и API /api/* с проверкой initData.
-Запуск: uvicorn bot.miniapp_api:app --host 0.0.0.0 --port 8080
+HTTP-сервер Mini App: статика miniapp/ и API /api/* с проверкой initData.
+
+В проде с ботом в одном процессе HTTP поднимается из bot.__main__ (post_init + uvicorn).
+Отдельно: uvicorn bot.miniapp_api:app --host 0.0.0.0 --port 8080
 """
 
 from __future__ import annotations

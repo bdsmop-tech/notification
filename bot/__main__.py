@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from telegram import MenuButtonWebApp, Update, WebAppInfo
@@ -11,6 +12,13 @@ from bot.config import BOT_TOKEN, WEBAPP_PUBLIC_URL
 from bot.database import init_db
 from bot.handlers import register_handlers
 from bot.reminder_worker import reminder_loop
+
+_MINIAPP_HTTP_ENV = "MINIAPP_HTTP"
+
+
+def _miniapp_http_enabled() -> bool:
+    v = os.getenv(_MINIAPP_HTTP_ENV, "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
 
 
 async def _on_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -43,6 +51,29 @@ def main() -> None:
                 ),
             )
         asyncio.create_task(reminder_loop(app))
+        if _miniapp_http_enabled():
+            # Один процесс: бот + Mini App на PORT (как на Railway для одного сервиса).
+            port_s = os.getenv("PORT", "8080").strip()
+            try:
+                port = int(port_s)
+            except ValueError:
+                port = 8080
+            import uvicorn
+
+            from bot.miniapp_api import app as miniapp_asgi
+
+            cfg = uvicorn.Config(
+                miniapp_asgi,
+                host="0.0.0.0",
+                port=port,
+                log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
+                proxy_headers=True,
+            )
+            server = uvicorn.Server(cfg)
+            asyncio.create_task(server.serve())
+            logging.getLogger(__name__).info(
+                "Mini App HTTP на 0.0.0.0:%s (отключить: %s=0)", port, _MINIAPP_HTTP_ENV
+            )
 
     # Railway / слабый канал до api.telegram.org — увеличиваем таймауты (иначе TimedOut при get_me).
     # При .request(...) нельзя задавать get_updates_*_timeout по отдельности — отдельный HTTPXRequest для getUpdates.
