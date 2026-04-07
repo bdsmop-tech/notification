@@ -25,3 +25,6 @@ REMINDER_POLL_SECONDS = float(os.getenv("REMINDER_POLL_SECONDS", "5"))
 MIN_SPAM_INTERVAL_SECONDS = int(os.getenv("MIN_SPAM_INTERVAL_SECONDS", "15"))
 # Интервал для режима «до Прочитал»
 READ_ACK_INTERVAL_SECONDS = int(os.getenv("READ_ACK_INTERVAL_SECONDS", "30"))
+
+# Публичный HTTPS URL Mini App (корень, где открывается index.html), например https://web.up.railway.app
+WEBAPP_PUBLIC_URL = os.getenv("WEBAPP_PUBLIC_URL", "").strip() or None

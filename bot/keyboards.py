@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+from bot.config import WEBAPP_PUBLIC_URL
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+    rows: list[list[InlineKeyboardButton]] = []
+    if WEBAPP_PUBLIC_URL:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "📱 Приложение",
+                    web_app=WebAppInfo(url=WEBAPP_PUBLIC_URL),
+                ),
+            ],
+        )
+    rows.extend(
         [
             [
                 InlineKeyboardButton("✏️ Новое", callback_data="menu:new"),
@@ -23,6 +35,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("❓ Помощь", callback_data="menu:help")],
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
 def time_chips_keyboard(*, history_back_page: int | None = None) -> InlineKeyboardMarkup:

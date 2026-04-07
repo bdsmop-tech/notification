@@ -2,12 +2,12 @@ import asyncio
 import logging
 import sys
 
-from telegram import Update
+from telegram import MenuButtonWebApp, Update, WebAppInfo
 from telegram.error import Conflict
 from telegram.ext import Application, ContextTypes
 from telegram.request import HTTPXRequest
 
-from bot.config import BOT_TOKEN
+from bot.config import BOT_TOKEN, WEBAPP_PUBLIC_URL
 from bot.database import init_db
 from bot.handlers import register_handlers
 from bot.reminder_worker import reminder_loop
@@ -35,6 +35,13 @@ def main() -> None:
         # Polling не совместим с активным webhook; снимаем webhook на всякий случай.
         await app.bot.delete_webhook(drop_pending_updates=True)
         await init_db()
+        if WEBAPP_PUBLIC_URL:
+            await app.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Приложение",
+                    web_app=WebAppInfo(url=WEBAPP_PUBLIC_URL),
+                ),
+            )
         asyncio.create_task(reminder_loop(app))
 
     # Railway / слабый канал до api.telegram.org — увеличиваем таймауты (иначе TimedOut при get_me).
