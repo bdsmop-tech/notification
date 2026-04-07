@@ -65,26 +65,38 @@
     return JSON.stringify(d);
   }
 
-  async function api(path, opts) {
-    const o = opts || {};
-    const jsonBody = o.body && typeof o.body === "string";
-    const h = authHeaders(!!jsonBody);
-    if (!h) throw new Error("Откройте из Telegram.");
-    const r = await fetch(path, {
-      ...o,
-      headers: { ...h, ...(o.headers || {}) },
-    });
+  async function api(path, options) {
+    const o = options != null && typeof options === "object" ? options : {};
+    const method = typeof o.method === "string" ? o.method : "GET";
+    const body = Object.prototype.hasOwnProperty.call(o, "body") ? o.body : undefined;
+    const jsonBody = typeof body === "string";
+    const base = authHeaders(jsonBody);
+    if (!base) throw new Error("Откройте из Telegram.");
+    let extra = {};
+    if (o.headers != null && typeof o.headers === "object" && !Array.isArray(o.headers)) {
+      try {
+        extra = Object.assign({}, o.headers);
+      } catch (_) {
+        extra = {};
+      }
+    }
+    const headers = Object.assign({}, base, extra);
+    const init = { method: method, headers: headers };
+    if (body !== undefined && method !== "GET" && method !== "HEAD") {
+      init.body = body;
+    }
+    const r = await fetch(path, init);
     const text = await r.text();
-    let body = null;
+    let payload = null;
     try {
-      body = text ? JSON.parse(text) : null;
+      payload = text ? JSON.parse(text) : null;
     } catch (_) {
-      body = { raw: text };
+      payload = { raw: text };
     }
     if (!r.ok) {
-      throw new Error(errDetail(body) || "Ошибка " + r.status);
+      throw new Error(errDetail(payload) || "Ошибка " + r.status);
     }
-    return body;
+    return payload;
   }
 
   function el(tag, cls, text) {
