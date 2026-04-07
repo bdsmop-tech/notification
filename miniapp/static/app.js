@@ -35,7 +35,7 @@
   };
 
   function theme() {
-    /* Палитра задаётся в style.css (Xbox / glass); не заливаем body цветами Telegram. */
+    /* Палитра задаётся в style.css; не заливаем body цветами Telegram. */
     document.body.style.backgroundColor = "";
     document.body.style.color = "";
   }
@@ -117,7 +117,11 @@
       b.classList.toggle("tab--on", b.getAttribute("data-view") === state.view);
     });
     const on = tabs.querySelector(".tab--on");
-    if (on && typeof on.scrollIntoView === "function") {
+    if (
+      on &&
+      on.classList.contains("tab--item") &&
+      typeof on.scrollIntoView === "function"
+    ) {
       on.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
     }
   }
