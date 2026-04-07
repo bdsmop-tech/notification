@@ -300,64 +300,75 @@ body {
   display: block;
 }
 
-/* Нативный select режима повтора — как нижняя панель: зелёное стекло, без системного вида */
-.glass-select {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  padding: 0.55rem 2.35rem 0.55rem 0.75rem;
+/* Режим повтора: не select — у каждого пункта своя явная подсветка выбора */
+.glass-optlist {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  font-family: inherit;
-  font-size: 0.88rem;
-  font-weight: 600;
-  line-height: 1.35;
-  cursor: pointer;
-  color: rgba(255, 255, 255, 0.96);
-  color-scheme: dark;
-  background-color: var(--rail-glass);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-opacity='0.92' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  background-size: 1rem 1rem;
+  background: var(--rail-glass);
   -webkit-backdrop-filter: blur(22px) saturate(160%);
   backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: var(--rail-float-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  -webkit-appearance: none;
-  appearance: none;
-  transition:
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.glass-select::-ms-expand {
-  display: none;
 }
 
 @supports not (backdrop-filter: blur(1px)) {
-  .glass-select {
-    background-color: var(--rail-glass-solid);
+  .glass-optlist {
+    background: var(--rail-glass-solid);
   }
 }
 
-.glass-select:hover {
-  border-color: rgba(255, 255, 255, 0.32);
-}
-
-.glass-select:focus {
-  outline: none;
-  border-color: rgba(232, 249, 238, 0.55);
-  box-shadow:
-    var(--rail-float-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 0 2px rgba(232, 249, 238, 0.35);
-}
-
-.glass-select option {
+.glass-opt {
+  width: 100%;
+  margin: 0;
+  padding: 0.52rem 0.7rem;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.84rem;
   font-weight: 600;
-  background: var(--rail-glass-solid);
-  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.95);
+  background: transparent;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.12);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.08s ease;
+}
+
+.glass-opt:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.glass-opt:active {
+  transform: scale(0.992);
+}
+
+.glass-opt:focus {
+  outline: none;
+}
+
+.glass-opt:focus-visible {
+  outline: 2px solid rgba(232, 249, 238, 0.95);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+.glass-opt--on {
+  color: var(--accent-green);
+  background: var(--rail-frost);
+  box-shadow:
+    0 0 0 1px rgba(0, 127, 62, 0.15),
+    0 3px 12px rgba(0, 50, 30, 0.14);
+}
+
+.glass-opt--on:hover {
+  background: #fff;
 }
 
 /* Календарь и вложенные блоки — лёгкое матовое стекло */

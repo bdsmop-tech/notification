@@ -104,12 +104,12 @@
     return n;
   }
 
-  /** Нативный select режима повтора, стилизованный под зелёное стекло (см. .glass-select) */
-  function createSpamSelect(currentValue) {
-    const sel = document.createElement("select");
-    sel.className = "glass-select";
-    sel.setAttribute("aria-label", "Режим повтора");
-    const opts = [
+  /**
+   * Режим повтора — не нативный select: в WebView пункты без нормальной подсветки.
+   * Список кнопок с явным выделением выбранного (.glass-opt--on).
+   */
+  function spamModeRadiogroup(currentValue, onChange) {
+    const SPAM_OPTS = [
       ["once", "Один раз"],
       ["until_read", "До «Прочитал»"],
       ["i30", "Каждые 30 с"],
@@ -117,14 +117,30 @@
       ["i120", "Каждые 120 с"],
       ["custom", "Свой интервал (сек)…"],
     ];
-    opts.forEach(function (x) {
-      const o = document.createElement("option");
-      o.value = x[0];
-      o.textContent = x[1];
-      if (currentValue === x[0]) o.selected = true;
-      sel.appendChild(o);
+    const wrap = el("div", "glass-optlist");
+    wrap.setAttribute("role", "radiogroup");
+    wrap.setAttribute("aria-label", "Режим повтора");
+    function setActive(v) {
+      wrap.querySelectorAll(".glass-opt").forEach(function (btn) {
+        const isOn = btn.getAttribute("data-value") === v;
+        btn.classList.toggle("glass-opt--on", isOn);
+        btn.setAttribute("aria-checked", isOn ? "true" : "false");
+      });
+    }
+    SPAM_OPTS.forEach(function (x) {
+      const b = el("button", "glass-opt", x[1]);
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("data-value", x[0]);
+      b.setAttribute("aria-checked", "false");
+      b.addEventListener("click", function () {
+        setActive(x[0]);
+        onChange(x[0]);
+      });
+      wrap.appendChild(b);
     });
-    return sel;
+    setActive(currentValue);
+    return { el: wrap, setValue: setActive };
   }
 
   function clearMain() {
@@ -432,9 +448,8 @@
     }
 
     f.appendChild(el("label", "label label--glass", "Повтор"));
-    const spamSel = createSpamSelect(state.newDraft.spam);
-    spamSel.addEventListener("change", function () {
-      state.newDraft.spam = spamSel.value;
+    const spamRg = spamModeRadiogroup(state.newDraft.spam, function (v) {
+      state.newDraft.spam = v;
       syncSpamCustom();
     });
     const custWrap = el("div", "spam-custom");
@@ -459,7 +474,7 @@
       cust.disabled = !on;
     }
     syncSpamCustom();
-    f.appendChild(spamSel);
+    f.appendChild(spamRg.el);
     f.appendChild(custWrap);
 
     const submit = el("button", "btn", "Создать");
@@ -707,8 +722,11 @@
       if (state.editMode === "spam") {
         const panel = el("div", "panel");
         panel.appendChild(el("label", "label label--glass", "Режим повтора"));
-        const pickInit = r.spam_variant === "custom" ? "custom" : r.spam_variant;
-        const spamSel = createSpamSelect(pickInit);
+        let pick = r.spam_variant === "custom" ? "custom" : r.spam_variant;
+        const spamRg = spamModeRadiogroup(pick, function (v) {
+          pick = v;
+          syncEd();
+        });
         const ci = el("input", "input");
         ci.type = "number";
         ci.min = "0";
@@ -717,19 +735,18 @@
         custWrap.appendChild(el("small", "hint", "Секунды для своего интервала"));
         custWrap.appendChild(ci);
         function syncEd() {
-          const on = spamSel.value === "custom";
+          const on = pick === "custom";
           custWrap.hidden = !on;
           ci.disabled = !on;
         }
-        spamSel.addEventListener("change", syncEd);
         syncEd();
-        panel.appendChild(spamSel);
+        panel.appendChild(spamRg.el);
         panel.appendChild(custWrap);
         const ok = el("button", "btn", "Сохранить");
         ok.type = "button";
         ok.addEventListener("click", async function () {
           try {
-            const pv = spamSel.value;
+            const pv = pick;
             await api("/api/reminders/" + state.detailId + "/spam", {
               method: "PATCH",
               body: JSON.stringify({
