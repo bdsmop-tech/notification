@@ -25,8 +25,6 @@
       text: "",
       date: "",
       time: "",
-      quick: "",
-      useQuick: false,
       spam: "once",
       customSpam: 60,
     },
@@ -253,8 +251,6 @@
           li.addEventListener("click", function () {
             state.newDraft.from_history_id = r.id;
             state.newDraft.text = r.text;
-            state.newDraft.quick = "";
-            state.newDraft.useQuick = false;
             state.newDraft.date = "";
             state.newDraft.time = "";
             state.newDraft.spam = "once";
@@ -302,7 +298,7 @@
   }
 
   async function renderNew() {
-    setTitle(state.newDraft.from_history_id ? "Повтор" : "Новое");
+    setTitle(state.newDraft.from_history_id ? "Повтор" : "Создать напоминание");
     showErr("");
     clearMain();
     const f = el("div", "form");
@@ -322,30 +318,9 @@
       });
       f.appendChild(lab);
       f.appendChild(ta);
-
-      const qLab = el("label", "label");
-      const qCb = document.createElement("input");
-      qCb.type = "checkbox";
-      qCb.checked = state.newDraft.useQuick;
-      qLab.appendChild(qCb);
-      qLab.appendChild(document.createTextNode(" Одной строкой на сегодня («купить хлеб 16 43»)"));
-      f.appendChild(qLab);
-
-      const qIn = el("input", "input");
-      qIn.placeholder = "текст 16 43";
-      qIn.value = state.newDraft.quick;
-      qIn.disabled = !state.newDraft.useQuick;
-      qCb.addEventListener("change", function () {
-        state.newDraft.useQuick = qCb.checked;
-        qIn.disabled = !qCb.checked;
-      });
-      qIn.addEventListener("input", function () {
-        state.newDraft.quick = qIn.value;
-      });
-      f.appendChild(qIn);
     }
 
-    if (!state.newDraft.useQuick || state.newDraft.from_history_id) {
+    {
       const calBox = el("div", "cal");
       const calHead = el("div", "row cal__head");
       const prev = el("button", "btn btn--ghost", "«");
@@ -478,8 +453,6 @@
         };
         if (state.newDraft.from_history_id) {
           body.from_history_id = state.newDraft.from_history_id;
-        } else if (state.newDraft.useQuick && state.newDraft.quick.trim()) {
-          body.quick_line = state.newDraft.quick.trim();
         } else {
           body.text = state.newDraft.text.trim();
           body.date = state.newDraft.date;
@@ -491,8 +464,6 @@
           text: "",
           date: "",
           time: "",
-          quick: "",
-          useQuick: false,
           spam: "once",
           customSpam: 60,
         };
@@ -563,45 +534,6 @@
       box.appendChild(row);
 
       const row2 = el("div", "row row--wrap");
-      row2.appendChild(
-        btn("+5 мин", async function () {
-          try {
-            await api("/api/reminders/" + state.detailId + "/snooze", {
-              method: "POST",
-              body: JSON.stringify({ minutes: 5 }),
-            });
-            render();
-          } catch (e) {
-            showErr(String(e.message || e));
-          }
-        }),
-      );
-      row2.appendChild(
-        btn("+1 ч", async function () {
-          try {
-            await api("/api/reminders/" + state.detailId + "/snooze", {
-              method: "POST",
-              body: JSON.stringify({ minutes: 60 }),
-            });
-            render();
-          } catch (e) {
-            showErr(String(e.message || e));
-          }
-        }),
-      );
-      row2.appendChild(
-        btn("Завтра", async function () {
-          try {
-            await api("/api/reminders/" + state.detailId + "/snooze", {
-              method: "POST",
-              body: JSON.stringify({ minutes: 1440 }),
-            });
-            render();
-          } catch (e) {
-            showErr(String(e.message || e));
-          }
-        }),
-      );
       row2.appendChild(
         btn("Стоп", async function () {
           try {
@@ -897,8 +829,7 @@
         "pre",
         "help",
         [
-          "• Новое — текст, дата в календаре, время, режим повтора.",
-          "• Или одной строкой на сегодня: «текст 16 43».",
+          "• Создать — текст, дата в календаре, время, режим повтора.",
           "• История — нажатие: повтор с тем же текстом.",
           "• В уведомлении в чате: Прочитал, Стоп, отложить — как в боте.",
           "• Пояс UTC: кнопки −12…+14.",
