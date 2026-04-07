@@ -34,6 +34,10 @@ def main() -> None:
         Application.builder()
         .token(BOT_TOKEN)
         .request(request)
+        .get_updates_read_timeout(45.0)
+        .get_updates_connect_timeout(25.0)
+        .get_updates_write_timeout(45.0)
+        .get_updates_pool_timeout(25.0)
         .post_init(post_init)
         .build()
     )
@@ -41,10 +45,6 @@ def main() -> None:
     print("Bot polling…", file=sys.stderr)
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        read_timeout=45.0,
-        connect_timeout=25.0,
-        write_timeout=45.0,
-        pool_timeout=25.0,
         bootstrap_retries=5,
     )
 

@@ -1081,7 +1081,7 @@ def register_handlers(app: Application) -> None:
         states={
             ASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_text)],
             ASK_DATE: [
-                CallbackQueryHandler(conv_new_calendar, pattern=r"^(?:nd[pnd]:|noop)$"),
+                CallbackQueryHandler(conv_new_calendar, pattern=r"^(?:nd[pnd]:\d+|noop)$"),
             ],
             ASK_TIME: [
                 CallbackQueryHandler(conv_time_chip, pattern=r"^nt:"),
