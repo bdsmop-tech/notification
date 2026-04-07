@@ -3,80 +3,935 @@
   tg.ready();
   tg.expand();
 
-  const statusEl = document.getElementById("status");
-  const listEl = document.getElementById("list");
-  const tzEl = document.getElementById("tz");
+  const titleEl = document.getElementById("screenTitle");
+  const tzLine = document.getElementById("tzLine");
+  const mainEl = document.getElementById("main");
+  const globalErr = document.getElementById("globalErr");
+  const tabs = document.getElementById("tabs");
 
-  function applyTheme() {
-    const p = tg.themeParams;
-    document.body.style.backgroundColor = p.bg_color || "#212121";
-    document.body.style.color = p.text_color || "#f5f5f5";
+  let me = null;
+
+  const state = {
+    view: "active",
+    backFromDetail: "active",
+    activePage: 0,
+    historyPage: 0,
+    detailId: null,
+    editMode: null,
+    calYear: new Date().getFullYear(),
+    calMonth: new Date().getMonth() + 1,
+    newDraft: {
+      from_history_id: null,
+      text: "",
+      date: "",
+      time: "",
+      quick: "",
+      useQuick: false,
+      spam: "once",
+      customSpam: 60,
+    },
+  };
+
+  function theme() {
+    const p = tg.themeParams || {};
+    document.body.style.backgroundColor = p.bg_color || "#1c1c1e";
+    document.body.style.color = p.text_color || "#f2f2f7";
+    document.documentElement.style.setProperty("--btn", p.button_color || "#0a84ff");
+    document.documentElement.style.setProperty("--btn-t", p.button_text_color || "#fff");
+    document.documentElement.style.setProperty("--hint", p.hint_color || "#8e8e93");
+    document.documentElement.style.setProperty("--sec", p.secondary_bg_color || "#2c2c2e");
+  }
+  if (tg.onEvent) tg.onEvent("themeChanged", theme);
+  theme();
+
+  function showErr(msg) {
+    globalErr.hidden = !msg;
+    globalErr.textContent = msg || "";
   }
 
-  if (tg.onEvent) {
-    tg.onEvent("themeChanged", applyTheme);
+  function authHeaders(json) {
+    const d = tg.initData;
+    if (!d) return null;
+    const h = { Authorization: "tma " + d };
+    if (json) h["Content-Type"] = "application/json";
+    return h;
   }
-  applyTheme();
+
+  function errDetail(body) {
+    if (!body || typeof body !== "object") return null;
+    const d = body.detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d) && d[0] && d[0].msg) return d[0].msg;
+    return JSON.stringify(d);
+  }
+
+  async function api(path, opts) {
+    const jsonBody = opts && opts.body && typeof opts.body === "string";
+    const h = authHeaders(!!jsonBody);
+    if (!h) throw new Error("Откройте из Telegram.");
+    const r = await fetch(path, {
+      ...opts,
+      headers: { ...h, ...(opts.headers || {}) },
+    });
+    const text = await r.text();
+    let body = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch (_) {
+      body = { raw: text };
+    }
+    if (!r.ok) {
+      throw new Error(errDetail(body) || "Ошибка " + r.status);
+    }
+    return body;
+  }
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function clearMain() {
+    mainEl.innerHTML = "";
+  }
+
+  function setTitle(t) {
+    titleEl.textContent = t;
+  }
+
+  function tabActive() {
+    tabs.querySelectorAll(".tab").forEach(function (b) {
+      b.classList.toggle("tab--on", b.getAttribute("data-view") === state.view);
+    });
+  }
 
   async function loadMe() {
-    const auth = tg.initData;
-    if (!auth) return;
     try {
-      const r = await fetch("/api/me", {
-        headers: { Authorization: "tma " + auth },
-      });
-      if (!r.ok) return;
-      const data = await r.json();
-      if (data.tz_label) {
-        tzEl.textContent = "Пояс: " + data.tz_label;
-      }
-    } catch (_) {
-      /* ignore */
+      me = await api("/api/me");
+      tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
+    } catch (e) {
+      tzLine.textContent = "";
     }
   }
 
-  async function loadReminders() {
-    statusEl.textContent = "Загрузка…";
-    listEl.innerHTML = "";
-    const auth = tg.initData;
-    if (!auth) {
-      statusEl.textContent = "Откройте мини-приложение из Telegram (кнопка в боте).";
-      return;
-    }
+  function openDetail(id, back) {
+    state.detailId = id;
+    state.backFromDetail = back || state.view;
+    state.editMode = null;
+    state.view = "detail";
+    tabActive();
+    render();
+  }
+
+  function backFromDetail() {
+    state.detailId = null;
+    state.view = state.backFromDetail;
+    state.editMode = null;
+    tabActive();
+    render();
+  }
+
+  function fmtSpam(r) {
+    if (r.spam_until_read) return ", до «Прочитал»";
+    if (r.spam_interval_seconds) return ", каждые " + r.spam_interval_seconds + " с";
+    return ", один раз";
+  }
+
+  function rowReminder(r, onPick) {
+    const li = el("button", "card");
+    const t = el("span", "card__time", r.fire_at_local + fmtSpam(r));
+    const tx = el("span", "card__text", r.text);
+    li.appendChild(t);
+    li.appendChild(tx);
+    li.type = "button";
+    li.addEventListener("click", function () {
+      onPick(r);
+    });
+    return li;
+  }
+
+  async function renderActive() {
+    setTitle("Активные");
+    showErr("");
+    const box = el("div", "stack");
+    const status = el("p", "hint", "Загрузка…");
+    box.appendChild(status);
+    mainEl.appendChild(box);
     try {
-      const r = await fetch("/api/reminders/active", {
-        headers: { Authorization: "tma " + auth },
-      });
-      if (r.status === 401) {
-        statusEl.textContent = "Сессия устарела — закройте и откройте снова.";
-        return;
+      const data = await api("/api/reminders/active?page=" + state.activePage);
+      box.innerHTML = "";
+      if (!data.reminders.length) {
+        box.appendChild(el("p", "hint", "Нет активных напоминаний."));
+      } else {
+        data.reminders.forEach(function (r) {
+          box.appendChild(
+            rowReminder(r, function () {
+              openDetail(r.id, "active");
+            }),
+          );
+        });
       }
-      if (!r.ok) {
-        statusEl.textContent = "Ошибка " + r.status;
-        return;
+      const nav = el("div", "row");
+      if (data.page > 0) {
+        const b = el("button", "btn btn--ghost", "← Пред.");
+        b.addEventListener("click", function () {
+          state.activePage = data.page - 1;
+          render();
+        });
+        nav.appendChild(b);
       }
-      const data = await r.json();
-      const items = data.reminders || [];
-      statusEl.textContent = items.length ? "" : "Нет активных напоминаний.";
-      for (const it of items) {
-        const li = document.createElement("li");
-        const t = document.createElement("span");
-        t.className = "time";
-        t.textContent = it.fire_at_local;
-        li.appendChild(t);
-        li.appendChild(document.createTextNode(it.text));
-        listEl.appendChild(li);
+      if (data.page < data.pages - 1) {
+        const b = el("button", "btn btn--ghost", "След. →");
+        b.addEventListener("click", function () {
+          state.activePage = data.page + 1;
+          render();
+        });
+        nav.appendChild(b);
+      }
+      if (nav.children.length) box.appendChild(nav);
+    } catch (e) {
+      status.textContent = String(e.message || e);
+    }
+  }
+
+  async function renderToday() {
+    setTitle("Сегодня");
+    showErr("");
+    const box = el("div", "stack");
+    mainEl.appendChild(box);
+    try {
+      const data = await api("/api/reminders/today");
+      if (!data.reminders.length) {
+        box.appendChild(el("p", "hint", "На сегодня ничего нет."));
+      } else {
+        data.reminders.forEach(function (r) {
+          box.appendChild(
+            rowReminder(r, function () {
+              openDetail(r.id, "today");
+            }),
+          );
+        });
       }
     } catch (e) {
-      statusEl.textContent = String(e.message || e);
+      box.appendChild(el("p", "err", String(e.message || e)));
     }
   }
 
-  document.getElementById("reload").addEventListener("click", function () {
-    loadMe();
-    loadReminders();
+  async function renderHistory() {
+    setTitle("История");
+    showErr("");
+    const box = el("div", "stack");
+    mainEl.appendChild(box);
+    try {
+      const data = await api("/api/reminders/history?page=" + state.historyPage);
+      if (!data.reminders.length) {
+        box.appendChild(el("p", "hint", "История пуста."));
+      } else {
+        data.reminders.forEach(function (r) {
+          const li = el("button", "card");
+          const sub = r.closed_at_local ? " → " + r.closed_at_local : "";
+          const t = el("span", "card__time", r.fire_at_local + sub);
+          const tx = el("span", "card__text", r.text);
+          li.appendChild(t);
+          li.appendChild(tx);
+          li.type = "button";
+          li.addEventListener("click", function () {
+            state.newDraft.from_history_id = r.id;
+            state.newDraft.text = r.text;
+            state.newDraft.quick = "";
+            state.newDraft.useQuick = false;
+            state.newDraft.date = "";
+            state.newDraft.time = "";
+            state.newDraft.spam = "once";
+            state.view = "new";
+            tabActive();
+            render();
+          });
+          box.appendChild(li);
+        });
+      }
+      const nav = el("div", "row");
+      if (data.page > 0) {
+        const b = el("button", "btn btn--ghost", "← Пред.");
+        b.addEventListener("click", function () {
+          state.historyPage = data.page - 1;
+          render();
+        });
+        nav.appendChild(b);
+      }
+      if (data.page < data.pages - 1) {
+        const b = el("button", "btn btn--ghost", "След. →");
+        b.addEventListener("click", function () {
+          state.historyPage = data.page + 1;
+          render();
+        });
+        nav.appendChild(b);
+      }
+      if (nav.children.length) box.appendChild(nav);
+    } catch (e) {
+      box.appendChild(el("p", "err", String(e.message || e)));
+    }
+  }
+
+  function spamField(name, value, label) {
+    const id = "sp_" + name + "_" + value;
+    const w = el("label", "radio");
+    const inp = document.createElement("input");
+    inp.type = "radio";
+    inp.name = name;
+    inp.value = value;
+    inp.id = id;
+    w.appendChild(inp);
+    w.appendChild(document.createTextNode(" " + label));
+    return w;
+  }
+
+  async function renderNew() {
+    setTitle(state.newDraft.from_history_id ? "Повтор" : "Новое");
+    showErr("");
+    clearMain();
+    const f = el("div", "form");
+
+    if (state.newDraft.from_history_id) {
+      f.appendChild(el("p", "hint", "Тот же текст — выбери дату и время."));
+      const prev = el("div", "preview", state.newDraft.text);
+      f.appendChild(prev);
+    } else {
+      const lab = el("label", "label", "Текст");
+      const ta = document.createElement("textarea");
+      ta.className = "input input--area";
+      ta.rows = 3;
+      ta.value = state.newDraft.text;
+      ta.addEventListener("input", function () {
+        state.newDraft.text = ta.value;
+      });
+      f.appendChild(lab);
+      f.appendChild(ta);
+
+      const qLab = el("label", "label");
+      const qCb = document.createElement("input");
+      qCb.type = "checkbox";
+      qCb.checked = state.newDraft.useQuick;
+      qLab.appendChild(qCb);
+      qLab.appendChild(document.createTextNode(" Одной строкой на сегодня («купить хлеб 16 43»)"));
+      f.appendChild(qLab);
+
+      const qIn = el("input", "input");
+      qIn.placeholder = "текст 16 43";
+      qIn.value = state.newDraft.quick;
+      qIn.disabled = !state.newDraft.useQuick;
+      qCb.addEventListener("change", function () {
+        state.newDraft.useQuick = qCb.checked;
+        qIn.disabled = !qCb.checked;
+      });
+      qIn.addEventListener("input", function () {
+        state.newDraft.quick = qIn.value;
+      });
+      f.appendChild(qIn);
+    }
+
+    if (!state.newDraft.useQuick || state.newDraft.from_history_id) {
+      const calBox = el("div", "cal");
+      const calHead = el("div", "row cal__head");
+      const prev = el("button", "btn btn--ghost", "«");
+      const next = el("button", "btn btn--ghost", "»");
+      const cap = el("span", "cal__cap", "");
+      calHead.appendChild(prev);
+      calHead.appendChild(cap);
+      calHead.appendChild(next);
+      calBox.appendChild(calHead);
+      const grid = el("div", "cal__grid");
+      calBox.appendChild(grid);
+
+      async function paintCal() {
+        const c = await api("/api/calendar/" + state.calYear + "/" + state.calMonth);
+        cap.textContent = c.month_label;
+        grid.innerHTML = "";
+        c.weekday_names.forEach(function (n) {
+          grid.appendChild(el("div", "cal__wd", n));
+        });
+        c.weeks.forEach(function (week) {
+          week.forEach(function (d) {
+            const cell = el("button", "cal__day");
+            if (d == null) {
+              cell.classList.add("cal__day--muted");
+              cell.textContent = "";
+              cell.disabled = true;
+            } else {
+              cell.textContent = String(d);
+              cell.type = "button";
+              const y = state.calYear;
+              const m = state.calMonth;
+              cell.addEventListener("click", function () {
+                const mm = String(m).padStart(2, "0");
+                const dd = String(d).padStart(2, "0");
+                state.newDraft.date = y + "-" + mm + "-" + dd;
+                Array.from(grid.querySelectorAll(".cal__day--pick")).forEach(function (x) {
+                  x.classList.remove("cal__day--pick");
+                });
+                cell.classList.add("cal__day--pick");
+              });
+            }
+            grid.appendChild(cell);
+          });
+        });
+      }
+
+      prev.addEventListener("click", function () {
+        state.calMonth -= 1;
+        if (state.calMonth < 1) {
+          state.calMonth = 12;
+          state.calYear -= 1;
+        }
+        paintCal();
+      });
+      next.addEventListener("click", function () {
+        state.calMonth += 1;
+        if (state.calMonth > 12) {
+          state.calMonth = 1;
+          state.calYear += 1;
+        }
+        paintCal();
+      });
+      f.appendChild(el("label", "label", "Дата"));
+      f.appendChild(calBox);
+      paintCal().catch(function (e) {
+        showErr(String(e.message || e));
+      });
+
+      const tLab = el("label", "label", "Время (16:43 или 16 43)");
+      const tIn = el("input", "input");
+      tIn.value = state.newDraft.time;
+      tIn.addEventListener("input", function () {
+        state.newDraft.time = tIn.value;
+      });
+      f.appendChild(tLab);
+      f.appendChild(tIn);
+
+      const chips = el("div", "chips");
+      ["09:00", "12:00", "15:00", "18:00", "21:00"].forEach(function (s) {
+        const b = el("button", "chip", s);
+        b.type = "button";
+        b.addEventListener("click", function () {
+          tIn.value = s.replace(":", " ");
+          state.newDraft.time = tIn.value;
+        });
+        chips.appendChild(b);
+      });
+      f.appendChild(chips);
+    }
+
+    f.appendChild(el("p", "label", "Повтор"));
+    const spamRow = el("div", "spam");
+    const g = "spam_new";
+    const opts = [
+      ["once", "Один раз"],
+      ["until_read", "До «Прочитал»"],
+      ["i30", "Каждые 30 с"],
+      ["i60", "Каждые 60 с"],
+      ["i120", "Каждые 120 с"],
+      ["custom", "Свой интервал (сек)"],
+    ];
+    opts.forEach(function (x) {
+      const w = spamField(g, x[0], x[1]);
+      const inp = w.querySelector("input");
+      if (state.newDraft.spam === x[0]) inp.checked = true;
+      inp.addEventListener("change", function () {
+        if (inp.checked) state.newDraft.spam = x[0];
+      });
+      spamRow.appendChild(w);
+    });
+    f.appendChild(spamRow);
+    const cust = el("input", "input");
+    cust.type = "number";
+    cust.min = "0";
+    cust.value = String(state.newDraft.customSpam);
+    cust.addEventListener("input", function () {
+      state.newDraft.customSpam = parseInt(cust.value, 10) || 0;
+    });
+    f.appendChild(el("small", "hint", "Для «Свой интервал» — секунды (мин. " + (me && me.min_spam_interval_seconds ? me.min_spam_interval_seconds : 15) + ")"));
+    f.appendChild(cust);
+
+    const submit = el("button", "btn", "Создать");
+    submit.type = "button";
+    submit.addEventListener("click", async function () {
+      showErr("");
+      try {
+        const body = {
+          spam_variant: state.newDraft.spam,
+          spam_interval_seconds: state.newDraft.customSpam,
+        };
+        if (state.newDraft.from_history_id) {
+          body.from_history_id = state.newDraft.from_history_id;
+        } else if (state.newDraft.useQuick && state.newDraft.quick.trim()) {
+          body.quick_line = state.newDraft.quick.trim();
+        } else {
+          body.text = state.newDraft.text.trim();
+          body.date = state.newDraft.date;
+          body.time = state.newDraft.time.trim();
+        }
+        await api("/api/reminders", { method: "POST", body: JSON.stringify(body) });
+        state.newDraft = {
+          from_history_id: null,
+          text: "",
+          date: "",
+          time: "",
+          quick: "",
+          useQuick: false,
+          spam: "once",
+          customSpam: 60,
+        };
+        state.view = "active";
+        state.activePage = 0;
+        tabActive();
+        render();
+      } catch (e) {
+        showErr(String(e.message || e));
+      }
+    });
+    f.appendChild(submit);
+
+    if (state.newDraft.from_history_id) {
+      const cancel = el("button", "btn btn--ghost", "Отмена");
+      cancel.type = "button";
+      cancel.addEventListener("click", function () {
+        state.newDraft.from_history_id = null;
+        state.view = "history";
+        tabActive();
+        render();
+      });
+      f.appendChild(cancel);
+    }
+
+    mainEl.appendChild(f);
+  }
+
+  async function renderDetail() {
+    setTitle("Напоминание");
+    showErr("");
+    clearMain();
+    const box = el("div", "stack");
+    mainEl.appendChild(box);
+    try {
+      const r = await api("/api/reminders/" + state.detailId);
+      box.appendChild(el("p", "detail__time", r.fire_at_local + fmtSpam(r)));
+      box.appendChild(el("p", "detail__text", r.text));
+
+      const row = el("div", "row row--wrap");
+      function btn(label, fn) {
+        const b = el("button", "btn btn--small", label);
+        b.type = "button";
+        b.addEventListener("click", fn);
+        return b;
+      }
+      row.appendChild(
+        btn("Текст", function () {
+          state.editMode = "text";
+          render();
+        }),
+      );
+      row.appendChild(
+        btn("Дата/время", function () {
+          state.editMode = "datetime";
+          const p = r.date_local.split("-");
+          state.calYear = parseInt(p[0], 10);
+          state.calMonth = parseInt(p[1], 10);
+          render();
+        }),
+      );
+      row.appendChild(
+        btn("Повтор", function () {
+          state.editMode = "spam";
+          render();
+        }),
+      );
+      box.appendChild(row);
+
+      const row2 = el("div", "row row--wrap");
+      row2.appendChild(
+        btn("+5 мин", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/snooze", {
+              method: "POST",
+              body: JSON.stringify({ minutes: 5 }),
+            });
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        }),
+      );
+      row2.appendChild(
+        btn("+1 ч", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/snooze", {
+              method: "POST",
+              body: JSON.stringify({ minutes: 60 }),
+            });
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        }),
+      );
+      row2.appendChild(
+        btn("Завтра", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/snooze", {
+              method: "POST",
+              body: JSON.stringify({ minutes: 1440 }),
+            });
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        }),
+      );
+      row2.appendChild(
+        btn("Стоп", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/stop", { method: "POST", body: "{}" });
+            backFromDetail();
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        }),
+      );
+      row2.appendChild(
+        btn("В архив", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/archive", { method: "POST", body: "{}" });
+            backFromDetail();
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        }),
+      );
+      box.appendChild(row2);
+
+      if (state.editMode === "text") {
+        const panel = el("div", "panel");
+        panel.appendChild(el("p", "label", "Новый текст"));
+        const ta = document.createElement("textarea");
+        ta.className = "input input--area";
+        ta.value = r.text;
+        panel.appendChild(ta);
+        const ok = el("button", "btn", "Сохранить");
+        ok.type = "button";
+        ok.addEventListener("click", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId, {
+              method: "PATCH",
+              body: JSON.stringify({ text: ta.value }),
+            });
+            state.editMode = null;
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        });
+        panel.appendChild(ok);
+        const cx = el("button", "btn btn--ghost", "Отмена");
+        cx.type = "button";
+        cx.addEventListener("click", function () {
+          state.editMode = null;
+          render();
+        });
+        panel.appendChild(cx);
+        box.appendChild(panel);
+      }
+
+      if (state.editMode === "datetime") {
+        const panel = el("div", "panel");
+        panel.appendChild(el("p", "label", "Новая дата и время"));
+        const calBox = el("div", "cal");
+        const calHead = el("div", "row cal__head");
+        const prev = el("button", "btn btn--ghost", "«");
+        const next = el("button", "btn btn--ghost", "»");
+        const cap = el("span", "cal__cap", "");
+        calHead.appendChild(prev);
+        calHead.appendChild(cap);
+        calHead.appendChild(next);
+        calBox.appendChild(calHead);
+        const grid = el("div", "cal__grid");
+        calBox.appendChild(grid);
+        let pickDate = r.date_local;
+        const tIn = el("input", "input");
+        tIn.value = r.time_local;
+
+        async function paintCal() {
+          const c = await api("/api/calendar/" + state.calYear + "/" + state.calMonth);
+          cap.textContent = c.month_label;
+          grid.innerHTML = "";
+          c.weekday_names.forEach(function (n) {
+            grid.appendChild(el("div", "cal__wd", n));
+          });
+          c.weeks.forEach(function (week) {
+            week.forEach(function (d) {
+              const cell = el("button", "cal__day");
+              if (d == null) {
+                cell.classList.add("cal__day--muted");
+                cell.disabled = true;
+              } else {
+                cell.textContent = String(d);
+                cell.type = "button";
+                const y = state.calYear;
+                const m = state.calMonth;
+                cell.addEventListener("click", function () {
+                  const mm = String(m).padStart(2, "0");
+                  const dd = String(d).padStart(2, "0");
+                  pickDate = y + "-" + mm + "-" + dd;
+                  Array.from(grid.querySelectorAll(".cal__day--pick")).forEach(function (x) {
+                    x.classList.remove("cal__day--pick");
+                  });
+                  cell.classList.add("cal__day--pick");
+                });
+              }
+              grid.appendChild(cell);
+            });
+          });
+        }
+        prev.addEventListener("click", function () {
+          state.calMonth -= 1;
+          if (state.calMonth < 1) {
+            state.calMonth = 12;
+            state.calYear -= 1;
+          }
+          paintCal();
+        });
+        next.addEventListener("click", function () {
+          state.calMonth += 1;
+          if (state.calMonth > 12) {
+            state.calMonth = 1;
+            state.calYear += 1;
+          }
+          paintCal();
+        });
+        panel.appendChild(calBox);
+        await paintCal();
+        panel.appendChild(tIn);
+        const ok = el("button", "btn", "Сохранить");
+        ok.type = "button";
+        ok.addEventListener("click", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId, {
+              method: "PATCH",
+              body: JSON.stringify({ date: pickDate, time: tIn.value.trim() }),
+            });
+            state.editMode = null;
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        });
+        panel.appendChild(ok);
+        const cx = el("button", "btn btn--ghost", "Отмена");
+        cx.type = "button";
+        cx.addEventListener("click", function () {
+          state.editMode = null;
+          render();
+        });
+        panel.appendChild(cx);
+        box.appendChild(panel);
+      }
+
+      if (state.editMode === "spam") {
+        const panel = el("div", "panel");
+        panel.appendChild(el("p", "label", "Режим повтора"));
+        let pick = r.spam_variant === "custom" ? "custom" : r.spam_variant;
+        let cust = r.spam_interval_seconds || 60;
+        const spamRow = el("div", "spam");
+        const g = "spam_ed";
+        const opts = [
+          ["once", "Один раз"],
+          ["until_read", "До «Прочитал»"],
+          ["i30", "30 с"],
+          ["i60", "60 с"],
+          ["i120", "120 с"],
+          ["custom", "Свой (сек)"],
+        ];
+        opts.forEach(function (x) {
+          const w = spamField(g, x[0], x[1]);
+          const inp = w.querySelector("input");
+          if (pick === x[0]) inp.checked = true;
+          inp.addEventListener("change", function () {
+            if (inp.checked) pick = x[0];
+          });
+          spamRow.appendChild(w);
+        });
+        panel.appendChild(spamRow);
+        const ci = el("input", "input");
+        ci.type = "number";
+        ci.min = "0";
+        ci.value = String(cust);
+        panel.appendChild(el("small", "hint", "Для «Свой» укажите секунды"));
+        panel.appendChild(ci);
+        const ok = el("button", "btn", "Сохранить");
+        ok.type = "button";
+        ok.addEventListener("click", async function () {
+          try {
+            await api("/api/reminders/" + state.detailId + "/spam", {
+              method: "PATCH",
+              body: JSON.stringify({
+                spam_variant: pick,
+                spam_interval_seconds: pick === "custom" ? parseInt(ci.value, 10) || 0 : 0,
+              }),
+            });
+            state.editMode = null;
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        });
+        panel.appendChild(ok);
+        const cx = el("button", "btn btn--ghost", "Отмена");
+        cx.type = "button";
+        cx.addEventListener("click", function () {
+          state.editMode = null;
+          render();
+        });
+        panel.appendChild(cx);
+        box.appendChild(panel);
+      }
+
+      const back = el("button", "btn btn--ghost", "← Назад");
+      back.type = "button";
+      back.addEventListener("click", backFromDetail);
+      box.appendChild(back);
+    } catch (e) {
+      box.appendChild(el("p", "err", String(e.message || e)));
+      const back = el("button", "btn btn--ghost", "← Назад");
+      back.type = "button";
+      back.addEventListener("click", backFromDetail);
+      box.appendChild(back);
+    }
+  }
+
+  async function renderSettings() {
+    setTitle("Настройки");
+    showErr("");
+    clearMain();
+    const box = el("div", "stack");
+    mainEl.appendChild(box);
+    try {
+      me = await api("/api/me");
+      tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
+
+      box.appendChild(el("p", "label", "Часовой пояс (смещение от UTC)"));
+      const grid = el("div", "tzgrid");
+      for (let h = -12; h <= 14; h++) {
+        const b = el("button", "tz", h === 0 ? "0" : (h > 0 ? "+" + h : String(h)));
+        b.type = "button";
+        if (me.offset_hours === h) b.classList.add("tz--on");
+        b.addEventListener("click", async function () {
+          try {
+            await api("/api/me/timezone", {
+              method: "POST",
+              body: JSON.stringify({ offset_hours: h }),
+            });
+            await loadMe();
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        });
+        grid.appendChild(b);
+      }
+      box.appendChild(grid);
+
+      const qh = el("button", "btn", me.quiet_hours_enabled ? "Тихие часы: вкл" : "Тихие часы: выкл");
+      qh.type = "button";
+      qh.addEventListener("click", async function () {
+        try {
+          const r = await api("/api/me/quiet-hours/toggle", { method: "POST", body: "{}" });
+          me.quiet_hours_enabled = r.quiet_hours_enabled;
+          qh.textContent = r.quiet_hours_enabled ? "Тихие часы: вкл" : "Тихие часы: выкл";
+        } catch (e) {
+          showErr(String(e.message || e));
+        }
+      });
+      box.appendChild(qh);
+      box.appendChild(
+        el(
+          "p",
+          "hint",
+          "Тихие часы 23:00–07:00 по вашему поясу — напоминания переносятся на утро.",
+        ),
+      );
+
+      const help = el("button", "btn btn--ghost", "Справка");
+      help.type = "button";
+      help.addEventListener("click", function () {
+        state.view = "help";
+        render();
+      });
+      box.appendChild(help);
+    } catch (e) {
+      box.appendChild(el("p", "err", String(e.message || e)));
+    }
+  }
+
+  function renderHelp() {
+    setTitle("Справка");
+    clearMain();
+    const box = el("div", "stack");
+    box.appendChild(
+      el(
+        "pre",
+        "help",
+        [
+          "• Новое — текст, дата в календаре, время, режим повтора.",
+          "• Или одной строкой на сегодня: «текст 16 43».",
+          "• История — нажатие: повтор с тем же текстом.",
+          "• В уведомлении в чате: Прочитал, Стоп, отложить — как в боте.",
+          "• Пояс UTC: кнопки −12…+14.",
+        ].join("\n"),
+      ),
+    );
+    const back = el("button", "btn btn--ghost", "← Назад");
+    back.type = "button";
+    back.addEventListener("click", function () {
+      state.view = "settings";
+      tabActive();
+      render();
+    });
+    mainEl.appendChild(box);
+    mainEl.appendChild(back);
+  }
+
+  function render() {
+    showErr("");
+    tabActive();
+    clearMain();
+    if (!tg.initData) {
+      mainEl.appendChild(el("p", "err", "Откройте мини-приложение из Telegram."));
+      return;
+    }
+    if (state.view === "active") renderActive();
+    else if (state.view === "today") renderToday();
+    else if (state.view === "history") renderHistory();
+    else if (state.view === "new") renderNew();
+    else if (state.view === "settings") renderSettings();
+    else if (state.view === "help") renderHelp();
+    else if (state.view === "detail") renderDetail();
+  }
+
+  tabs.addEventListener("click", function (ev) {
+    const t = ev.target.closest(".tab");
+    if (!t) return;
+    const v = t.getAttribute("data-view");
+    if (!v) return;
+    state.view = v;
+    state.detailId = null;
+    state.editMode = null;
+    if (v === "active") state.activePage = 0;
+    if (v === "history") state.historyPage = 0;
+    render();
   });
 
-  loadMe();
-  loadReminders();
+  loadMe().then(render);
 })();

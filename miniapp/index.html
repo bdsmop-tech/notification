@@ -8,15 +8,21 @@
   <link rel="stylesheet" href="/app/static/style.css" />
 </head>
 <body>
-  <main class="wrap">
+  <div id="app" class="app">
     <header class="hdr">
-      <h1 class="title">Активные</h1>
-      <p class="sub" id="tz"></p>
+      <h1 class="title" id="screenTitle">Напоминания</h1>
+      <p class="sub" id="tzLine"></p>
     </header>
-    <p class="status" id="status">Загрузка…</p>
-    <ul class="list" id="list"></ul>
-    <button type="button" class="btn" id="reload">Обновить</button>
-  </main>
+    <div id="globalErr" class="globalErr" hidden></div>
+    <main class="main" id="main"></main>
+    <nav class="tabs" id="tabs">
+      <button type="button" class="tab" data-view="active">Активные</button>
+      <button type="button" class="tab" data-view="today">Сегодня</button>
+      <button type="button" class="tab" data-view="history">История</button>
+      <button type="button" class="tab" data-view="new">Новое</button>
+      <button type="button" class="tab" data-view="settings">Настройки</button>
+    </nav>
+  </div>
   <script src="/app/static/app.js"></script>
 </body>
 </html>
