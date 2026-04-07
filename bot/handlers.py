@@ -79,12 +79,25 @@ def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-def _tz_cb(name: str) -> str:
-    return "tz:" + name.replace("/", "_")
+def _tz_picker_caption() -> str:
+    lines = ["Часовой пояс — нажми цифру:\n"]
+    for i, (label, _) in enumerate(TZ_CHOICES, start=1):
+        lines.append(f"{i} — {label}")
+    return "\n".join(lines)
 
 
-def _tz_parse(data: str) -> str:
-    return data[3:].replace("_", "/")
+def _tz_picker_markup() -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for i in range(len(TZ_CHOICES)):
+        row.append(InlineKeyboardButton(str(i + 1), callback_data=f"tzn:{i}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append(back_to_menu_row())
+    return InlineKeyboardMarkup(rows)
 
 
 def _new_calendar_kb(y: int, m: int) -> InlineKeyboardMarkup:
@@ -117,17 +130,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
-    rows = []
-    row: list[InlineKeyboardButton] = []
-    for label, iana in TZ_CHOICES:
-        row.append(InlineKeyboardButton(label, callback_data=_tz_cb(iana)))
-        if len(row) == 2:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append(back_to_menu_row())
-    await update.message.reply_text("Часовой пояс:", reply_markup=InlineKeyboardMarkup(rows))
+    await update.message.reply_text(_tz_picker_caption(), reply_markup=_tz_picker_markup())
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -216,7 +219,8 @@ async def conv_new_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         picked = date_from_ymd_int(payload)
         context.user_data["picked_date"] = picked
         await q.edit_message_text(
-            f"Дата: {picked.strftime('%d.%m.%Y')} ({tz.key}). Время:",
+            f"Дата: {picked.strftime('%d.%m.%Y')} ({tz.key}).\n"
+            "Отправь время через пробел, например: 16 43 — или выбери быстрый вариант:",
             reply_markup=time_chips_keyboard(),
         )
         return ASK_TIME
@@ -240,7 +244,7 @@ async def conv_time_chip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
     if tok == "manual":
         await q.edit_message_text(
-            f"Дата {picked.strftime('%d.%m.%Y')} ({tz.key}). Отправь время одним сообщением (ЧЧ:ММ).",
+            f"Дата {picked.strftime('%d.%m.%Y')} ({tz.key}). Отправь время через пробел, например: 16 43",
             reply_markup=None,
         )
         return ASK_TIME
@@ -268,7 +272,10 @@ async def new_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     t = parse_time_one_line(update.message.text)
     if t is None:
-        await update.message.reply_text("Нужно ЧЧ:ММ", reply_markup=time_chips_keyboard())
+        await update.message.reply_text(
+            "Нужно время: через пробел (16 43) или с двоеточием (16:43).",
+            reply_markup=time_chips_keyboard(),
+        )
         return ASK_TIME
     local_dt = datetime.combine(picked, t, tzinfo=tz)
     fire_at = local_dt.astimezone(timezone.utc)
@@ -406,17 +413,18 @@ async def _send_active_list(
         text = "Активных напоминаний нет."
         kb = InlineKeyboardMarkup([back_to_menu_row()]) if not query else None
     else:
-        lines = [f"Активные (стр. {page + 1}/{pages}):\n"]
+        lines = [
+            f"Активные (стр. {page + 1}/{pages}). Нажми строку — всё редактирование, 🗑 — в архив."
+        ]
         buttons: list[list[InlineKeyboardButton]] = []
-        start = page * PAGE_SIZE
-        for i, r in enumerate(rows):
+        for r in rows:
             local = r.fire_at.astimezone(tz)
-            lines.append(
-                f"{start + i + 1}. {local.strftime('%d.%m %H:%M')}{_spam_label(r)}\n   {r.text[:80]}"
-            )
+            tail = f"{_spam_label(r)}"
+            base = f"{local.strftime('%d.%m %H:%M')}{tail} — {r.text}"
+            btn_text = base if len(base) <= 58 else base[:55] + "…"
             buttons.append(
                 [
-                    InlineKeyboardButton("✏️", callback_data=f"em:{r.id}"),
+                    InlineKeyboardButton(btn_text, callback_data=f"em:{r.id}"),
                     InlineKeyboardButton("🗑", callback_data=f"rm:{r.id}"),
                 ]
             )
@@ -565,21 +573,11 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _send_today_list(context, chat_id, uid, query=q)
         return
     if data == "menu:tz":
-        rows = []
-        row = []
-        for label, iana in TZ_CHOICES:
-            row.append(InlineKeyboardButton(label, callback_data=_tz_cb(iana)))
-            if len(row) == 2:
-                rows.append(row)
-                row = []
-        if row:
-            rows.append(row)
-        rows.append(back_to_menu_row())
-        await q.edit_message_text("Часовой пояс:", reply_markup=InlineKeyboardMarkup(rows))
+        await q.edit_message_text(_tz_picker_caption(), reply_markup=_tz_picker_markup())
         return
     if data == "menu:help":
         await q.edit_message_text(
-            "• Новое — текст, календарь и время.\n"
+            "• Новое — текст, дата, время через пробел (например 16 43) или кнопки.\n"
             "• Повтор: один раз, до «Прочитал», или интервал + Стоп.\n"
             "• В уведомлении: Прочитал, Стоп, отложить (+5 мин / +1 ч / завтра).\n"
             "• Тихие часы в настройках — не будит ночью (переносит на утро).",
@@ -707,14 +705,18 @@ async def on_noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await q.answer()
 
 
-async def on_tz_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def on_tzn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if q is None or q.data is None or update.effective_user is None:
         return
     await q.answer()
-    if not q.data.startswith("tz:"):
+    m = re.fullmatch(r"tzn:(\d+)", q.data)
+    if not m:
         return
-    name = _tz_parse(q.data)
+    idx = int(m.group(1))
+    if idx < 0 or idx >= len(TZ_CHOICES):
+        return
+    name = TZ_CHOICES[idx][1]
     try:
         z = await set_user_timezone(update.effective_user.id, name)
     except Exception:
@@ -972,8 +974,9 @@ async def on_edit_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         context.user_data["waiting_edit_date"] = picked.isoformat()
         tz = await get_user_zone(uid)
         await q.edit_message_text(
-            f"Дата {picked.strftime('%d.%m.%Y')} ({tz.key}). Время (ЧЧ:ММ):",
-            reply_markup=None,
+            f"Дата {picked.strftime('%d.%m.%Y')} ({tz.key}).\n"
+            "Время через пробел (например 16 43) или кнопка:",
+            reply_markup=time_chips_keyboard(),
         )
 
 
@@ -1021,7 +1024,10 @@ async def on_pending_edit_message(update: Update, context: ContextTypes.DEFAULT_
             return
         t = parse_time_one_line(text_raw)
         if t is None:
-            await update.message.reply_text("Нужно ЧЧ:ММ.")
+            await update.message.reply_text(
+                "Нужно время: 16 43 или 16:43.",
+                reply_markup=time_chips_keyboard(),
+            )
             return
         tz = await get_user_zone(uid)
         local_dt = datetime.combine(picked, t, tzinfo=tz)
@@ -1058,6 +1064,67 @@ async def on_edit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     _clear_pending(uid)
     context.user_data.pop("waiting_edit_text", None)
     await q.edit_message_text("Отменено.", reply_markup=main_menu_keyboard())
+
+
+async def on_nt_standalone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Чипы времени nt: вне диалога /new — при редактировании даты напоминания (waiting_edit_time)."""
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return
+    await q.answer()
+    rid_s = context.user_data.get("waiting_edit_time")
+    if not rid_s:
+        return
+    m = re.fullmatch(r"nt:(\d{4}|manual)", q.data)
+    if not m:
+        return
+    tok = m.group(1)
+    uid = update.effective_user.id
+    tz = await get_user_zone(uid)
+    ds = context.user_data.get("waiting_edit_date")
+    if not ds:
+        return
+    try:
+        picked = date.fromisoformat(ds)
+        rid = UUID(rid_s)
+    except ValueError:
+        return
+    r = await _get_reminder_for_user(rid, uid)
+    if r is None or not r.active:
+        await q.edit_message_text("Не найдено.")
+        return
+    if tok == "manual":
+        await q.edit_message_text(
+            f"Дата {picked.strftime('%d.%m.%Y')} ({tz.key}). Отправь время через пробел, например: 16 43",
+            reply_markup=None,
+        )
+        return
+    hh = int(tok[:2])
+    mm = int(tok[2:])
+    t = time(hh, mm)
+    local_dt = datetime.combine(picked, t, tzinfo=tz)
+    fire_at = local_dt.astimezone(timezone.utc)
+    if fire_at <= _utcnow():
+        await q.edit_message_text("Это время уже в прошлом.")
+        context.user_data.pop("waiting_edit_time", None)
+        context.user_data.pop("waiting_edit_date", None)
+        _clear_pending(uid)
+        return
+    async with SessionLocal() as session:
+        r2 = await session.get(Reminder, rid)
+        if r2 is None or r2.user_id != uid or not r2.active:
+            await q.edit_message_text("Не найдено.")
+            return
+        r2.fire_at = fire_at
+        await session.commit()
+    context.user_data.pop("waiting_edit_time", None)
+    context.user_data.pop("waiting_edit_date", None)
+    context.user_data.pop("edit_reminder_id", None)
+    _clear_pending(uid)
+    await q.edit_message_text(
+        f"Время: {fire_at.astimezone(tz).strftime('%d.%m.%Y %H:%M')}",
+        reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
+    )
 
 
 async def on_orphan_new_calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1105,6 +1172,7 @@ def register_handlers(app: Application) -> None:
     # а fallback разговора (conv_menu_leave) не срабатывает.
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(conv)
+    app.add_handler(CallbackQueryHandler(on_nt_standalone, pattern=r"^nt:"))
     app.add_handler(CallbackQueryHandler(on_orphan_new_calendar_callback, pattern=r"^nd[pnd]:"))
     app.add_handler(
         CallbackQueryHandler(
@@ -1117,7 +1185,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("timezone", cmd_timezone))
     app.add_handler(CallbackQueryHandler(on_noop_callback, pattern=r"^noop$"))
-    app.add_handler(CallbackQueryHandler(on_tz_callback, pattern=r"^tz:"))
+    app.add_handler(CallbackQueryHandler(on_tzn_callback, pattern=r"^tzn:\d+$"))
     app.add_handler(CallbackQueryHandler(on_list_page, pattern=r"^lp:\d+$"))
     app.add_handler(CallbackQueryHandler(on_history_page, pattern=r"^hp:\d+$"))
     app.add_handler(CallbackQueryHandler(on_edit_menu, pattern=r"^em:"))

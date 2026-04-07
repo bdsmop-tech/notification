@@ -38,7 +38,7 @@ def time_chips_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("18:00", callback_data="nt:1800"),
                 InlineKeyboardButton("21:00", callback_data="nt:2100"),
             ],
-            [InlineKeyboardButton("✍️ Ввести время текстом", callback_data="nt:manual")],
+            [InlineKeyboardButton("✍️ Ввести вручную (16 43)", callback_data="nt:manual")],
         ]
     )
 
