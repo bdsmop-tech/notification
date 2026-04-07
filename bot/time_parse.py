@@ -26,3 +26,19 @@ def parse_time_one_line(text: str) -> time | None:
             return None
         return time(h, mi, sec)
     return None
+
+
+_TRAILING_TIME = re.compile(r"^(.+?)\s+(\d{1,2})\s+(\d{1,2})\s*$")
+
+
+def parse_trailing_text_and_time(s: str) -> tuple[str, time] | None:
+    """Текст и время в одном сообщении: «купить хлеб 16 43» — последние два числа — часы и минуты."""
+    m = _TRAILING_TIME.match(s.strip())
+    if not m:
+        return None
+    body, hs, ms = m.group(1).strip(), int(m.group(2)), int(m.group(3))
+    if not body:
+        return None
+    if hs > 23 or ms > 59:
+        return None
+    return body, time(hs, ms)

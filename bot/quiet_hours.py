@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import tzinfo
 
 
 def in_quiet_window(local_now: datetime, start_h: int, end_h: int) -> bool:
@@ -15,7 +15,7 @@ def in_quiet_window(local_now: datetime, start_h: int, end_h: int) -> bool:
 
 def next_quiet_end_utc(
     now_utc: datetime,
-    tz: ZoneInfo,
+    tz: tzinfo,
     start_h: int,
     end_h: int,
 ) -> datetime | None:
