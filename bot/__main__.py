@@ -24,20 +24,20 @@ def main() -> None:
         asyncio.create_task(reminder_loop(app))
 
     # Railway / слабый канал до api.telegram.org — увеличиваем таймауты (иначе TimedOut при get_me).
-    request = HTTPXRequest(
-        connect_timeout=25.0,
-        read_timeout=45.0,
-        write_timeout=45.0,
-        pool_timeout=25.0,
-    )
+    # При .request(...) нельзя задавать get_updates_*_timeout по отдельности — отдельный HTTPXRequest для getUpdates.
+    def _http() -> HTTPXRequest:
+        return HTTPXRequest(
+            connect_timeout=25.0,
+            read_timeout=45.0,
+            write_timeout=45.0,
+            pool_timeout=25.0,
+        )
+
     app = (
         Application.builder()
         .token(BOT_TOKEN)
-        .request(request)
-        .get_updates_read_timeout(45.0)
-        .get_updates_connect_timeout(25.0)
-        .get_updates_write_timeout(45.0)
-        .get_updates_pool_timeout(25.0)
+        .request(_http())
+        .get_updates_request(_http())
         .post_init(post_init)
         .build()
     )
