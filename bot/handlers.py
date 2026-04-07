@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import nulls_last, select, update
 from sqlalchemy.sql import func
-from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -114,11 +114,35 @@ def _parse_tz_offset_hours(text: str) -> int | None:
     return None
 
 
-def _new_calendar_kb(y: int, m: int) -> InlineKeyboardMarkup:
+def _new_calendar_kb(y: int, m: int, *, history_back_page: int | None = None) -> InlineKeyboardMarkup:
     cal = build_calendar_keyboard(y, m, "nd")
-    rows = list(cal.inline_keyboard) + [
-        [InlineKeyboardButton("« Отмена", callback_data="menu:cancel")],
-    ]
+    rows = list(cal.inline_keyboard)
+    if history_back_page is not None:
+        rows.append(
+            [InlineKeyboardButton("« К истории", callback_data=f"hhist:{history_back_page}")],
+        )
+    rows.append([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _hist_page(context: ContextTypes.DEFAULT_TYPE) -> int | None:
+    return context.user_data.get("history_return_page")
+
+
+def _kb_time_chips(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    return time_chips_keyboard(history_back_page=_hist_page(context))
+
+
+def _kb_spam(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    return spam_mode_keyboard(history_back_page=_hist_page(context))
+
+
+def _spam_custom_error_kb(context: ContextTypes.DEFAULT_TYPE) -> InlineKeyboardMarkup:
+    hp = _hist_page(context)
+    rows: list[list[InlineKeyboardButton]] = []
+    if hp is not None:
+        rows.append([InlineKeyboardButton("« К истории", callback_data=f"hhist:{hp}")])
+    rows.append([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -185,7 +209,7 @@ async def conv_cancel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def conv_menu_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выйти из /new по кнопкам меню без зависшего состояния."""
-    for k in ("reminder_text", "picked_date", "fire_at", "spam_int", "spam_until_read"):
+    for k in ("reminder_text", "picked_date", "fire_at", "spam_int", "spam_until_read", "history_return_page"):
         context.user_data.pop(k, None)
     await on_menu_callback(update, context)
     return ConversationHandler.END
@@ -214,6 +238,34 @@ async def new_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ASK_TEXT
 
 
+async def history_dup_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Повтор напоминания из истории — тот же текст, дата и время заново."""
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return ConversationHandler.END
+    await q.answer()
+    m = re.fullmatch(r"histdup:([0-9a-fA-F-]{36}):(\d+)", q.data)
+    if not m:
+        return ConversationHandler.END
+    rid = UUID(m.group(1))
+    page = int(m.group(2))
+    uid = update.effective_user.id
+    r = await _get_history_reminder(rid, uid)
+    if r is None:
+        await q.edit_message_text("Не найдено в истории.")
+        return ConversationHandler.END
+    _clear_pending(uid)
+    context.user_data.clear()
+    context.user_data["reminder_text"] = r.text
+    context.user_data["history_return_page"] = page
+    y, mo = default_calendar_anchor()
+    await q.edit_message_text(
+        "Тот же текст — выбери новую дату и время:",
+        reply_markup=_new_calendar_kb(y, mo, history_back_page=page),
+    )
+    return ASK_DATE
+
+
 async def new_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message is None or not update.message.text or update.effective_user is None:
         return ASK_TEXT
@@ -232,18 +284,18 @@ async def new_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text(
                 "Это время сегодня уже прошло. Укажи время в будущем (например 16 43) "
                 "или /new и выбери другую дату.",
-                reply_markup=time_chips_keyboard(),
+                reply_markup=_kb_time_chips(context),
             )
             return ASK_TIME
         context.user_data["reminder_text"] = text_part
         context.user_data["fire_at"] = fire_at
-        await update.message.reply_text("Как повторять?", reply_markup=spam_mode_keyboard())
+        await update.message.reply_text("Как повторять?", reply_markup=_kb_spam(context))
         return ASK_SPAM
     context.user_data["reminder_text"] = raw
     y, m = default_calendar_anchor()
     await update.message.reply_text(
         "Выбери дату:",
-        reply_markup=_new_calendar_kb(y, m),
+        reply_markup=_new_calendar_kb(y, m, history_back_page=_hist_page(context)),
     )
     return ASK_DATE
 
@@ -267,7 +319,9 @@ async def conv_new_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if action in ("p", "n") and payload is not None:
         dir_char = "n" if action == "n" else "p"
         ny, nm = month_from_nav(payload, dir_char)
-        await q.edit_message_reply_markup(reply_markup=_new_calendar_kb(ny, nm))
+        await q.edit_message_reply_markup(
+            reply_markup=_new_calendar_kb(ny, nm, history_back_page=_hist_page(context)),
+        )
         return ASK_DATE
     if action == "d" and payload is not None:
         picked = date_from_ymd_int(payload)
@@ -275,7 +329,7 @@ async def conv_new_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await q.edit_message_text(
             f"Дата: {picked.strftime('%d.%m.%Y')} ({format_tz_label(tz)}).\n"
             "Отправь время через пробел, например: 16 43 — или выбери быстрый вариант:",
-            reply_markup=time_chips_keyboard(),
+            reply_markup=_kb_time_chips(context),
         )
         return ASK_TIME
     return ASK_DATE
@@ -310,11 +364,11 @@ async def conv_time_chip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if fire_at <= _utcnow():
         await q.edit_message_text(
             "Это время уже прошло. Выбери другое время в будущем или введи вручную (16 43).",
-            reply_markup=time_chips_keyboard(),
+            reply_markup=_kb_time_chips(context),
         )
         return ASK_TIME
     context.user_data["fire_at"] = fire_at
-    await q.edit_message_text("Как повторять напоминание?", reply_markup=spam_mode_keyboard())
+    await q.edit_message_text("Как повторять напоминание?", reply_markup=_kb_spam(context))
     return ASK_SPAM
 
 
@@ -331,7 +385,7 @@ async def new_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if t is None:
         await update.message.reply_text(
             "Нужно время: через пробел (16 43) или с двоеточием (16:43).",
-            reply_markup=time_chips_keyboard(),
+            reply_markup=_kb_time_chips(context),
         )
         return ASK_TIME
     local_dt = datetime.combine(picked, t, tzinfo=tz)
@@ -339,11 +393,11 @@ async def new_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if fire_at <= _utcnow():
         await update.message.reply_text(
             "Это время уже прошло. Укажи время в будущем (например 16 43).",
-            reply_markup=time_chips_keyboard(),
+            reply_markup=_kb_time_chips(context),
         )
         return ASK_TIME
     context.user_data["fire_at"] = fire_at
-    await update.message.reply_text("Как повторять?", reply_markup=spam_mode_keyboard())
+    await update.message.reply_text("Как повторять?", reply_markup=_kb_spam(context))
     return ASK_SPAM
 
 
@@ -354,10 +408,15 @@ async def conv_spam_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await q.answer()
     data = q.data
     if data == "ns:custom":
+        custom_rows: list[list[InlineKeyboardButton]] = []
+        hp = _hist_page(context)
+        if hp is not None:
+            custom_rows.append([InlineKeyboardButton("« К истории", callback_data=f"hhist:{hp}")])
+        custom_rows.append([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")])
         await q.edit_message_text(
             "Отправь одно число — интервал в секундах (минимум "
             f"{MIN_SPAM_INTERVAL_SECONDS}, 0 = один раз).",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Отмена", callback_data="menu:cancel")]]),
+            reply_markup=InlineKeyboardMarkup(custom_rows),
         )
         return ASK_SPAM_CUSTOM
 
@@ -388,11 +447,17 @@ async def conv_spam_custom_msg(update: Update, context: ContextTypes.DEFAULT_TYP
         return ASK_SPAM_CUSTOM
     raw = update.message.text.strip()
     if not re.fullmatch(r"\d+", raw):
-        await update.message.reply_text("Нужно целое число секунд.")
+        await update.message.reply_text(
+            "Нужно целое число секунд.",
+            reply_markup=_spam_custom_error_kb(context),
+        )
         return ASK_SPAM_CUSTOM
     spam = int(raw)
     if spam < 0:
-        await update.message.reply_text("Не отрицательное.")
+        await update.message.reply_text(
+            "Не отрицательное.",
+            reply_markup=_spam_custom_error_kb(context),
+        )
         return ASK_SPAM_CUSTOM
     if spam > 0 and spam < MIN_SPAM_INTERVAL_SECONDS:
         spam = MIN_SPAM_INTERVAL_SECONDS
@@ -585,7 +650,9 @@ async def _send_history_page(
         text = "История пуста."
         kb = InlineKeyboardMarkup([back_to_menu_row()])
     else:
-        lines = [f"История (стр. {page + 1}/{pages}). Ниже — копировать текст:\n"]
+        lines = [
+            f"История (стр. {page + 1}/{pages}). Нажми — то же напоминание, время выберешь заново:",
+        ]
         buttons: list[list[InlineKeyboardButton]] = []
         start = page * PAGE_SIZE
         for i, r in enumerate(rows):
@@ -593,12 +660,14 @@ async def _send_history_page(
             end = r.closed_at.astimezone(tz) if r.closed_at else None
             end_s = f" → {end.strftime('%d.%m %H:%M')}" if end else ""
             lines.append(f"{start + i + 1}. {local.strftime('%d.%m %H:%M')}{end_s}\n   {r.text[:100]}")
-            copy_payload = r.text if len(r.text) <= 256 else r.text[:253] + "…"
+            label = f"{local.strftime('%d.%m %H:%M')}{end_s} — {r.text}"
+            if len(label) > 58:
+                label = label[:55] + "…"
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        f"📋 Копировать #{start + i + 1}",
-                        copy_text=CopyTextButton(text=copy_payload),
+                        label,
+                        callback_data=f"histdup:{r.id}:{page}",
                     ),
                 ]
             )
@@ -619,6 +688,52 @@ async def _send_history_page(
         await message.reply_text(text, reply_markup=kb)
     else:
         await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
+
+
+async def conv_hhist_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return ConversationHandler.END
+    await q.answer()
+    m = re.fullmatch(r"hhist:(\d+)", q.data)
+    if not m:
+        return ConversationHandler.END
+    page = int(m.group(1))
+    for k in (
+        "reminder_text",
+        "picked_date",
+        "fire_at",
+        "spam_int",
+        "spam_until_read",
+        "history_return_page",
+    ):
+        context.user_data.pop(k, None)
+    await _send_history_page(
+        context,
+        q.message.chat_id,
+        update.effective_user.id,
+        page,
+        query=q,
+    )
+    return ConversationHandler.END
+
+
+async def on_hhist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return
+    await q.answer()
+    m = re.fullmatch(r"hhist:(\d+)", q.data)
+    if not m:
+        return
+    page = int(m.group(1))
+    await _send_history_page(
+        context,
+        q.message.chat_id,
+        update.effective_user.id,
+        page,
+        query=q,
+    )
 
 
 async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -653,6 +768,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "• Пояс UTC: +3, −4 или кнопки.\n"
             "• Повтор: один раз, до «Прочитал», или интервал + Стоп.\n"
             "• В уведомлении: Прочитал, Стоп, отложить (+5 мин / +1 ч / завтра).\n"
+            "• История — кнопка по строке: тот же текст, выбираешь дату и время заново.\n"
             "• Тихие часы в настройках — не будит ночью (переносит на утро).",
             reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
         )
@@ -875,6 +991,14 @@ async def _get_reminder_for_user(rid: UUID, user_id: int) -> Reminder | None:
     async with SessionLocal() as session:
         r = await session.get(Reminder, rid)
         if r is None or r.user_id != user_id:
+            return None
+        return r
+
+
+async def _get_history_reminder(rid: UUID, user_id: int) -> Reminder | None:
+    async with SessionLocal() as session:
+        r = await session.get(Reminder, rid)
+        if r is None or r.user_id != user_id or r.active:
             return None
         return r
 
@@ -1257,6 +1381,7 @@ def register_handlers(app: Application) -> None:
         entry_points=[
             CommandHandler("new", new_start),
             CallbackQueryHandler(new_start, pattern=r"^menu:new$"),
+            CallbackQueryHandler(history_dup_start, pattern=r"^histdup:[0-9a-fA-F-]{36}:\d+$"),
         ],
         states={
             ASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_text)],
@@ -1275,6 +1400,7 @@ def register_handlers(app: Application) -> None:
         fallbacks=[
             CommandHandler("cancel", cmd_cancel),
             CallbackQueryHandler(conv_cancel_cb, pattern=r"^menu:cancel$"),
+            CallbackQueryHandler(conv_hhist_back, pattern=r"^hhist:\d+$"),
             CallbackQueryHandler(
                 conv_menu_leave,
                 pattern=r"^menu:(list|history|tz|help|main|today|settings)$",
@@ -1304,6 +1430,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(on_tzo_callback, pattern=r"^tzo:"))
     app.add_handler(CallbackQueryHandler(on_list_page, pattern=r"^lp:\d+$"))
     app.add_handler(CallbackQueryHandler(on_history_page, pattern=r"^hp:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_hhist_callback, pattern=r"^hhist:\d+$"))
     app.add_handler(CallbackQueryHandler(on_edit_menu, pattern=r"^em:"))
     app.add_handler(CallbackQueryHandler(on_edit_spam_menu, pattern=r"^esm:"))
     app.add_handler(CallbackQueryHandler(on_edit_spam_apply, pattern=r"^ens:"))
