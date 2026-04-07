@@ -20,19 +20,23 @@ def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-def _firing_keyboard(r: Reminder) -> InlineKeyboardMarkup:
-    rows = []
+def _firing_keyboard(r: Reminder) -> InlineKeyboardMarkup | None:
     if r.spam_until_read:
-        rows.append([InlineKeyboardButton("✅ Прочитал", callback_data=f"ack:{r.id}")])
-    rows.append([InlineKeyboardButton("Стоп", callback_data=f"stop:{r.id}")])
-    rows.append(
-        [
-            InlineKeyboardButton("+5 мин", callback_data=f"snz:{r.id}:5"),
-            InlineKeyboardButton("+1 ч", callback_data=f"snz:{r.id}:60"),
-            InlineKeyboardButton("Завтра", callback_data=f"snz:{r.id}:1440"),
-        ]
-    )
-    return InlineKeyboardMarkup(rows)
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton("✅ Прочитал", callback_data=f"ack:{r.id}")]]
+        )
+    if r.spam_interval_seconds and r.spam_interval_seconds > 0:
+        return InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Стоп", callback_data=f"stop:{r.id}")],
+                [
+                    InlineKeyboardButton("+5 мин", callback_data=f"snz:{r.id}:5"),
+                    InlineKeyboardButton("+1 ч", callback_data=f"snz:{r.id}:60"),
+                    InlineKeyboardButton("Завтра", callback_data=f"snz:{r.id}:1440"),
+                ],
+            ]
+        )
+    return None
 
 
 async def _process_due_reminders(app: Application) -> None:
@@ -61,18 +65,13 @@ async def _process_due_reminders(app: Application) -> None:
                     )
                     continue
 
-            tag = ""
-            if r.spam_until_read:
-                tag = f" (повтор каждые {READ_ACK_INTERVAL_SECONDS} сек до «Прочитал»)"
-            elif r.spam_interval_seconds:
-                tag = f" (повтор каждые {r.spam_interval_seconds} сек)"
-
-            text = f"⏰ Напоминание{tag}:\n\n{r.text}"
+            text = r.text
+            kb = _firing_keyboard(r)
             try:
                 await app.bot.send_message(
                     chat_id=r.chat_id,
                     text=text,
-                    reply_markup=_firing_keyboard(r),
+                    reply_markup=kb,
                 )
             except Exception as e:
                 log.exception("send_message failed for reminder %s: %s", r.id, e)
