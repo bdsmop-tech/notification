@@ -1,22 +1,19 @@
 /*
-  Спокойная зелёная палитра, выраженный glassmorphism.
-  Нижняя панель — стеклянный док с горизонтальным скроллом вкладок.
+  Светлый «Aura» / Xbox: волны на фоне, стекло поверх, общая нижняя панель в потоке вёрстки.
 */
 
 :root {
-  --bg0: #0e1210;
-  --bg1: #161d1a;
-  --bg2: #1c2622;
-  --accent: #2dd4bf;
-  --accent-dim: #115e59;
-  --accent-soft: rgba(45, 212, 191, 0.14);
-  --accent-border: rgba(45, 212, 191, 0.28);
-  --text: #e8f2ef;
-  --text-muted: rgba(200, 220, 210, 0.55);
-  --glass: rgba(255, 255, 255, 0.06);
-  --glass-edge: rgba(255, 255, 255, 0.12);
-  --blur: 36px;
-  --blur-dock: 44px;
+  --text: #1a2d24;
+  --text-muted: rgba(26, 45, 36, 0.55);
+  --accent: #1f8a5b;
+  --accent-strong: #0d5c3d;
+  --accent-soft: rgba(31, 138, 91, 0.12);
+  --accent-border: rgba(31, 138, 91, 0.35);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-deep: rgba(255, 255, 255, 0.88);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --blur: 28px;
+  --blur-rail: 40px;
   --radius: 14px;
   --radius-sm: 10px;
 }
@@ -37,21 +34,10 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   color: var(--text);
-  background: var(--bg0);
-  position: relative;
-  overflow-x: hidden;
+  background: #e8f0eb;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  background:
-    radial-gradient(ellipse 90% 50% at 50% -25%, rgba(45, 212, 191, 0.09), transparent 55%),
-    linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 55%);
-}
-
+/* Общий контейнер: фон-иллюстрация + лёгкое осветление для читаемости */
 .app {
   display: flex;
   flex-direction: column;
@@ -59,24 +45,45 @@ body::before {
   min-height: 100dvh;
   max-width: 28rem;
   margin: 0 auto;
+  position: relative;
+  isolation: isolate;
 }
 
-/* Шапка — лёгкое матовое стекло */
+.app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(248, 252, 250, 0.72) 45%, rgba(255, 255, 255, 0.55) 100%),
+    url("/app/static/aura-bg.png") center bottom / cover no-repeat;
+  pointer-events: none;
+}
+
+.app__stack {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .hdr {
-  padding: 0.55rem 0.85rem 0.45rem;
-  padding-top: calc(0.55rem + env(safe-area-inset-top, 0));
-  margin: 0.45rem 0.7rem 0;
+  padding: 0.5rem 0.75rem 0.4rem;
+  padding-top: calc(0.5rem + env(safe-area-inset-top, 0));
+  margin: 0.4rem 0.65rem 0;
   border-radius: var(--radius);
   background: var(--glass);
-  backdrop-filter: blur(var(--blur)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
-  border: 1px solid var(--glass-edge);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(var(--blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 24px rgba(20, 60, 40, 0.08);
 }
 
 .title {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.08rem;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -84,31 +91,30 @@ body::before {
 
 .sub {
   margin: 0.2rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
 }
 
 .globalErr,
 .err {
-  margin: 0.45rem 0.7rem 0;
-  padding: 0.5rem 0.65rem;
+  position: relative;
+  z-index: 1;
+  margin: 0.4rem 0.65rem 0;
+  padding: 0.45rem 0.6rem;
   border-radius: var(--radius-sm);
-  background: rgba(120, 40, 45, 0.4);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 120, 120, 0.2);
-  color: #fce8e8;
-  font-size: 0.86rem;
+  background: rgba(200, 80, 80, 0.18);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(200, 80, 80, 0.25);
+  color: #7a1f1f;
+  font-size: 0.85rem;
 }
 
-/* Область контента + лист */
 .main {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 0.45rem 0.7rem 0;
-  padding-bottom: calc(5.2rem + env(safe-area-inset-bottom, 0));
+  padding: 0.4rem 0.65rem 0;
   overflow: hidden;
 }
 
@@ -126,26 +132,26 @@ body::before {
 
 .main__sheet--exit-left {
   opacity: 0;
-  transform: translateX(-14px);
+  transform: translateX(-12px);
 }
 
 .main__sheet--exit-right {
   opacity: 0;
-  transform: translateX(14px);
+  transform: translateX(12px);
 }
 
 .main__sheet--enter-from-right {
-  animation: sheetInFromRight 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: sheetInFromRight 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .main__sheet--enter-from-left {
-  animation: sheetInFromLeft 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: sheetInFromLeft 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes sheetInFromRight {
   from {
     opacity: 0;
-    transform: translateX(22px);
+    transform: translateX(20px);
   }
   to {
     opacity: 1;
@@ -156,7 +162,7 @@ body::before {
 @keyframes sheetInFromLeft {
   from {
     opacity: 0;
-    transform: translateX(-22px);
+    transform: translateX(-20px);
   }
   to {
     opacity: 1;
@@ -164,23 +170,19 @@ body::before {
   }
 }
 
-/* Стеклянный док внизу + перелистывание вкладок */
-.tabs-dock {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 0;
-  width: 100%;
-  max-width: 28rem;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0));
-  background: rgba(18, 24, 22, 0.45);
-  backdrop-filter: blur(var(--blur-dock)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--blur-dock)) saturate(180%);
-  border-top: 1px solid var(--glass-edge);
-  border-radius: 18px 18px 0 0;
+/* Общая нижняя «рейка» — одна панель на всю ширину, стекло, контент листается выше */
+.app-rail {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  padding: 12px 10px calc(12px + env(safe-area-inset-bottom, 0));
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(var(--blur-rail)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-rail)) saturate(180%);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
   box-shadow:
-    0 -4px 32px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 -8px 32px rgba(30, 80, 55, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .tabs {
@@ -192,7 +194,6 @@ body::before {
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding-bottom: 2px;
 }
 
 .tabs::-webkit-scrollbar {
@@ -202,27 +203,29 @@ body::before {
 .tab {
   flex: 0 0 auto;
   scroll-snap-align: center;
-  min-width: 4.5rem;
-  max-width: 5.5rem;
-  border: 1px solid transparent;
+  min-width: 4.4rem;
+  max-width: 5.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: var(--radius-sm);
-  padding: 0.42rem 0.35rem;
-  font-size: 0.68rem;
-  font-weight: 500;
+  padding: 0.4rem 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 600;
   letter-spacing: -0.01em;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.35);
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    color 0.18s,
-    border-color 0.18s,
-    background 0.18s;
+    color 0.16s,
+    border-color 0.16s,
+    background 0.16s,
+    box-shadow 0.16s;
 }
 
 .tab--on {
   color: var(--text);
-  background: var(--accent-soft);
+  background: rgba(255, 255, 255, 0.92);
   border-color: var(--accent-border);
+  box-shadow: 0 2px 12px var(--accent-soft);
 }
 
 .stack {
@@ -245,47 +248,46 @@ body::before {
 .hint {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   line-height: 1.4;
 }
 
-/* Карточки — заметное стекло */
 .card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   text-align: left;
   width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--glass-edge);
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass);
   backdrop-filter: blur(var(--blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 16px rgba(20, 60, 40, 0.06);
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  transition: border-color 0.16s, box-shadow 0.16s;
 }
 
 .card:active {
-  transform: scale(0.995);
+  transform: scale(0.996);
 }
 
 .card:hover,
 .card:focus-visible {
-  border-color: rgba(45, 212, 191, 0.22);
+  border-color: var(--accent-border);
 }
 
 .card__time {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.12rem;
   font-variant-numeric: tabular-nums;
 }
 
 .card__text {
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   word-break: break-word;
 }
 
@@ -293,74 +295,87 @@ body::before {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  padding: 0.5rem 0.9rem;
+  padding: 0.48rem 0.85rem;
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  color: #042f2e;
-  background: linear-gradient(180deg, #5eead4 0%, var(--accent) 48%, #0d9488 100%);
-  box-shadow: 0 2px 12px rgba(45, 212, 191, 0.22);
-  transition: filter 0.15s, transform 0.1s;
+  color: #fff;
+  background: linear-gradient(180deg, #2ea572 0%, var(--accent) 40%, var(--accent-strong) 100%);
+  box-shadow: 0 2px 10px rgba(31, 138, 91, 0.28);
+  transition: filter 0.14s, transform 0.1s, opacity 0.14s;
 }
 
-.btn:hover {
-  filter: brightness(1.04);
+.btn:hover:not(:disabled) {
+  filter: brightness(1.05);
 }
 
-.btn:active {
+.btn:active:not(:disabled) {
   transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
 }
 
 .btn--ghost {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--glass-edge);
-  box-shadow: none;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 6px rgba(20, 60, 40, 0.06);
 }
 
-.btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(45, 212, 191, 0.2);
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--accent-border);
 }
 
 .btn--small {
-  padding: 0.38rem 0.55rem;
-  font-size: 0.76rem;
+  padding: 0.36rem 0.5rem;
+  font-size: 0.75rem;
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.48rem;
 }
 
 .label {
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: var(--text-muted);
   margin: 0;
 }
 
 .input {
   width: 100%;
-  padding: 0.55rem 0.65rem;
+  padding: 0.5rem 0.6rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-edge);
-  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: var(--text);
   font-size: 1rem;
 }
 
+.input--select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231a2d24' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  padding-right: 2rem;
+}
+
 .input:focus {
   outline: none;
   border-color: var(--accent-border);
-  box-shadow: 0 0 0 1px var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .input::placeholder {
@@ -369,16 +384,15 @@ body::before {
 
 .input--area {
   resize: vertical;
-  min-height: 4.25rem;
+  min-height: 4rem;
 }
 
 .preview {
-  padding: 0.6rem 0.7rem;
+  padding: 0.55rem 0.65rem;
   border-radius: var(--radius);
-  border: 1px solid var(--glass-edge);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: var(--glass-deep);
   backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -392,32 +406,31 @@ body::before {
 .chip {
   border: 1px solid var(--accent-border);
   border-radius: 999px;
-  padding: 0.32rem 0.6rem;
-  font-size: 0.8rem;
-  font-weight: 500;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
   background: var(--accent-soft);
-  color: #99f6e4;
+  color: var(--accent-strong);
   cursor: pointer;
-  transition: background 0.15s;
 }
 
 .chip:hover {
-  background: rgba(45, 212, 191, 0.22);
+  background: rgba(31, 138, 91, 0.2);
 }
 
 .spam {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.32rem;
 }
 
 .radio {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.86rem;
+  gap: 0.38rem;
+  font-size: 0.84rem;
   cursor: pointer;
-  padding: 0.3rem 0.35rem;
+  padding: 0.25rem 0.3rem;
   border-radius: var(--radius-sm);
 }
 
@@ -428,13 +441,13 @@ body::before {
 .cal__head {
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.28rem;
 }
 
 .cal__cap {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: #99f6e4;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--accent-strong);
 }
 
 .cal__grid {
@@ -445,22 +458,21 @@ body::before {
 
 .cal__wd {
   text-align: center;
-  font-size: 0.62rem;
-  font-weight: 500;
+  font-size: 0.6rem;
+  font-weight: 600;
   color: var(--text-muted);
-  padding: 0.15rem 0;
+  padding: 0.12rem 0;
 }
 
 .cal__day {
   aspect-ratio: 1;
-  border: 1px solid var(--glass-edge);
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: var(--radius-sm);
-  font-size: 0.8rem;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.45);
   color: var(--text);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
 }
 
 .cal__day:hover:not(:disabled) {
@@ -476,35 +488,33 @@ body::before {
 
 .cal__day--pick {
   border-color: var(--accent);
-  background: rgba(45, 212, 191, 0.2);
+  background: rgba(31, 138, 91, 0.2);
   box-shadow: 0 0 0 1px var(--accent-border);
 }
 
 .detail__time {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
   margin: 0;
 }
 
 .detail__text {
-  margin: 0.35rem 0 0.5rem;
+  margin: 0.32rem 0 0.45rem;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 1rem;
-  line-height: 1.45;
+  font-size: 0.98rem;
 }
 
 .panel {
-  margin-top: 0.55rem;
-  padding: 0.65rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem;
   border-radius: var(--radius);
-  border: 1px solid var(--glass-edge);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: var(--glass-deep);
   backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .tzgrid {
@@ -514,15 +524,14 @@ body::before {
 }
 
 .tz {
-  padding: 0.38rem 0;
-  border: 1px solid var(--glass-edge);
+  padding: 0.35rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.4);
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.15s;
 }
 
 .tz:hover {
@@ -530,23 +539,22 @@ body::before {
 }
 
 .tz--on {
-  background: linear-gradient(180deg, #5eead4 0%, #14b8a6 100%);
-  border-color: rgba(45, 212, 191, 0.45);
-  color: #042f2e;
-  box-shadow: 0 2px 10px rgba(45, 212, 191, 0.25);
+  background: linear-gradient(180deg, #3abb7d 0%, var(--accent) 100%);
+  border-color: rgba(31, 138, 91, 0.5);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(31, 138, 91, 0.25);
 }
 
 .help {
   margin: 0;
   white-space: pre-wrap;
   font-family: inherit;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   line-height: 1.5;
   color: var(--text-muted);
-  padding: 0.65rem;
+  padding: 0.6rem;
   border-radius: var(--radius);
-  border: 1px solid var(--glass-edge);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: var(--glass);
   backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
 }

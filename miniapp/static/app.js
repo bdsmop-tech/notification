@@ -244,26 +244,51 @@
       if (!data.reminders.length) {
         box.appendChild(el("p", "hint", "История пуста."));
       } else {
+        box.appendChild(
+          el("p", "hint", "Выберите запись в списке и нажмите «Повторить» — откроется создание с тем же текстом."),
+        );
+        const sel = document.createElement("select");
+        sel.className = "input input--select";
+        sel.setAttribute("aria-label", "Запись из истории");
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = "— выберите запись —";
+        sel.appendChild(opt0);
         data.reminders.forEach(function (r) {
-          const li = el("button", "card");
+          const o = document.createElement("option");
+          o.value = r.id;
           const sub = r.closed_at_local ? " → " + r.closed_at_local : "";
-          const t = el("span", "card__time", r.fire_at_local + sub);
-          const tx = el("span", "card__text", r.text);
-          li.appendChild(t);
-          li.appendChild(tx);
-          li.type = "button";
-          li.addEventListener("click", function () {
-            state.newDraft.from_history_id = r.id;
-            state.newDraft.text = r.text;
-            state.newDraft.date = "";
-            state.newDraft.time = "";
-            state.newDraft.spam = "once";
-            state.view = "new";
-            tabActive();
-            render();
-          });
-          box.appendChild(li);
+          let line = r.fire_at_local + sub + " — " + r.text;
+          if (line.length > 118) line = line.slice(0, 115) + "…";
+          o.textContent = line;
+          sel.appendChild(o);
         });
+        const btn = el("button", "btn", "Повторить");
+        btn.type = "button";
+        btn.disabled = true;
+        sel.addEventListener("change", function () {
+          btn.disabled = !sel.value;
+        });
+        btn.addEventListener("click", function () {
+          const id = sel.value;
+          if (!id) return;
+          const r = data.reminders.find(function (x) {
+            return x.id === id;
+          });
+          if (!r) return;
+          state.newDraft.from_history_id = r.id;
+          state.newDraft.text = r.text;
+          state.newDraft.date = "";
+          state.newDraft.time = "";
+          state.newDraft.spam = "once";
+          state.view = "new";
+          tabActive();
+          render({
+            tabDir: TAB_ORDER.indexOf("new") - TAB_ORDER.indexOf("history"),
+          });
+        });
+        box.appendChild(sel);
+        box.appendChild(btn);
       }
       const nav = el("div", "row");
       if (data.page > 0) {
