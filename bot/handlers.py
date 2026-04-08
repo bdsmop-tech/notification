@@ -245,7 +245,16 @@ async def conv_cancel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def conv_menu_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выйти из /new по кнопкам меню без зависшего состояния."""
-    for k in ("reminder_text", "picked_date", "fire_at", "spam_int", "spam_until_read", "history_return_page"):
+    for k in (
+        "reminder_text",
+        "picked_date",
+        "fire_at",
+        "spam_int",
+        "spam_until_read",
+        "history_return_page",
+        "friend_target_user_id",
+        "friend_target_name",
+    ):
         context.user_data.pop(k, None)
     await on_menu_callback(update, context)
     return ConversationHandler.END
@@ -300,6 +309,31 @@ async def history_dup_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         reply_markup=_new_calendar_kb(y, mo, history_back_page=page),
     )
     return ASK_DATE
+
+
+async def friend_new_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Создать напоминание другу: как обычное/копирование (дата/время/повтор по шагам)."""
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return ConversationHandler.END
+    await q.answer()
+    m = re.fullmatch(r"fr:new:(\d+)", q.data)
+    if not m:
+        return ConversationHandler.END
+    uid = update.effective_user.id
+    friend_id = int(m.group(1))
+    if not await is_friend(uid, friend_id):
+        await q.edit_message_text("Этот пользователь уже не в друзьях.", reply_markup=_friends_menu_kb())
+        return ConversationHandler.END
+    _clear_pending(uid)
+    context.user_data.clear()
+    context.user_data["friend_target_user_id"] = friend_id
+    context.user_data["friend_target_name"] = await resolve_profile_name(friend_id)
+    await q.edit_message_text(
+        f"Для «{context.user_data['friend_target_name']}» напиши текст напоминания.",
+        reply_markup=InlineKeyboardMarkup([InlineKeyboardButton("« Отмена", callback_data="menu:cancel")]),
+    )
+    return ASK_TEXT
 
 
 async def new_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -562,27 +596,66 @@ async def _commit_new_reminder(update: Update, context: ContextTypes.DEFAULT_TYP
     chat = update.effective_chat
     if user is None or chat is None:
         return
+    target_friend_id = context.user_data.get("friend_target_user_id")
+    target_friend_name = context.user_data.get("friend_target_name")
+    if target_friend_id is not None:
+        try:
+            target_friend_id = int(target_friend_id)
+        except (TypeError, ValueError):
+            target_friend_id = None
+    is_friend_flow = target_friend_id is not None
     async with SessionLocal() as session:
-        r = Reminder(
-            user_id=user.id,
-            chat_id=chat.id,
-            text=text,
-            fire_at=fire_at,
-            spam_interval_seconds=spam,
-            spam_until_read=until_read,
-            active=True,
-        )
+        if is_friend_flow:
+            r = Reminder(
+                user_id=target_friend_id,
+                chat_id=target_friend_id,
+                text=text,
+                fire_at=fire_at,
+                spam_interval_seconds=spam,
+                spam_until_read=until_read,
+                active=True,
+            )
+        else:
+            r = Reminder(
+                user_id=user.id,
+                chat_id=chat.id,
+                text=text,
+                fire_at=fire_at,
+                spam_interval_seconds=spam,
+                spam_until_read=until_read,
+                active=True,
+            )
         session.add(r)
+        await session.flush()
+        if is_friend_flow:
+            tz_sender = await get_user_zone(user.id)
+            local_dt = fire_at.astimezone(tz_sender)
+            session.add(
+                FriendReminder(
+                    sender_user_id=user.id,
+                    receiver_user_id=target_friend_id,
+                    reminder_id=r.id,
+                    fire_at_sender_tz=local_dt.strftime("%d.%m.%Y %H:%M"),
+                    status="scheduled",
+                )
+            )
         await session.commit()
         rid = r.id
     tz = await get_user_zone(user.id)
     context.user_data.clear()
     msg = update.callback_query.message if update.callback_query and update.callback_query.message else update.message
     if msg:
-        await msg.reply_text(
-            f"Готово #{str(rid)[:8]}… на {fire_at.astimezone(tz).strftime('%d.%m.%Y %H:%M')} ({format_tz_label(tz)}).",
-            reply_markup=main_menu_keyboard(),
-        )
+        if is_friend_flow:
+            shown_name = target_friend_name or f"Пользователь {str(target_friend_id)[-4:]}"
+            await msg.reply_text(
+                f"Готово для «{shown_name}» #{str(rid)[:8]}… на {fire_at.astimezone(tz).strftime('%d.%m.%Y %H:%M')} ({format_tz_label(tz)}).",
+                reply_markup=main_menu_keyboard(),
+            )
+        else:
+            await msg.reply_text(
+                f"Готово #{str(rid)[:8]}… на {fire_at.astimezone(tz).strftime('%d.%m.%Y %H:%M')} ({format_tz_label(tz)}).",
+                reply_markup=main_menu_keyboard(),
+            )
 
 
 def _reminder_short(r: Reminder) -> str:
@@ -873,20 +946,6 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         rows.append([InlineKeyboardButton("« Назад", callback_data="menu:friends")])
         await q.edit_message_text("Мои друзья:", reply_markup=InlineKeyboardMarkup(rows))
-        return
-    m_new = re.fullmatch(r"fr:new:(\d+)", data)
-    if m_new:
-        friend_id = int(m_new.group(1))
-        if not await is_friend(uid, friend_id):
-            await q.edit_message_text("Этот пользователь уже не в друзьях.", reply_markup=_friends_menu_kb())
-            return
-        friend_name = await resolve_profile_name(friend_id)
-        context.user_data["await_friend_reminder_user_id"] = friend_id
-        context.user_data["await_friend_reminder_name"] = friend_name
-        await q.edit_message_text(
-            f"Для «{friend_name}» отправь текст и время одной строкой:\nНапример: Позвони маме 19 30",
-            reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
-        )
         return
     m_delask = re.fullmatch(r"fr:delask:(\d+)", data)
     if m_delask:
@@ -1244,59 +1303,6 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
             except Exception as e:
                 log.warning("notify target friend request failed: %s", e)
-        return
-
-    if context.user_data.get("await_friend_reminder_user_id"):
-        if update.message is None or not update.message.text or update.effective_user is None:
-            return
-        raw = update.message.text.strip()
-        parsed = parse_trailing_text_and_time(raw)
-        if not parsed:
-            await update.message.reply_text("Нужен формат: «текст 16 43» или «текст 16:43».")
-            return
-        text_part, t = parsed
-        uid = update.effective_user.id
-        friend_id = int(context.user_data["await_friend_reminder_user_id"])
-        if not await is_friend(uid, friend_id):
-            context.user_data.pop("await_friend_reminder_user_id", None)
-            context.user_data.pop("await_friend_reminder_name", None)
-            await update.message.reply_text("Этот пользователь уже не в друзьях.", reply_markup=main_menu_keyboard())
-            return
-        tz_sender = await get_user_zone(uid)
-        today = _utcnow().astimezone(tz_sender).date()
-        local_dt = datetime.combine(today, t, tzinfo=tz_sender)
-        fire_at = local_dt.astimezone(timezone.utc)
-        if fire_at <= _utcnow():
-            await update.message.reply_text("Это время сегодня уже прошло. Укажи время в будущем.")
-            return
-        async with SessionLocal() as session:
-            rem = Reminder(
-                user_id=friend_id,
-                chat_id=friend_id,
-                text=text_part.strip(),
-                fire_at=fire_at,
-                spam_interval_seconds=0,
-                spam_until_read=False,
-                active=True,
-            )
-            session.add(rem)
-            await session.flush()
-            fr = FriendReminder(
-                sender_user_id=uid,
-                receiver_user_id=friend_id,
-                reminder_id=rem.id,
-                fire_at_sender_tz=local_dt.strftime("%d.%m.%Y %H:%M"),
-                status="scheduled",
-            )
-            session.add(fr)
-            await session.commit()
-        fname = context.user_data.get("await_friend_reminder_name") or await resolve_profile_name(friend_id)
-        context.user_data.pop("await_friend_reminder_user_id", None)
-        context.user_data.pop("await_friend_reminder_name", None)
-        await update.message.reply_text(
-            f"Напоминание для «{fname}» создано на {local_dt.strftime('%d.%m.%Y %H:%M')}.",
-            reply_markup=main_menu_keyboard(),
-        )
         return
 
     if not context.user_data.get("await_tz_offset"):
@@ -1842,6 +1848,7 @@ def register_handlers(app: Application) -> None:
             CommandHandler("new", new_start),
             CallbackQueryHandler(new_start, pattern=r"^menu:new$"),
             CallbackQueryHandler(history_dup_start, pattern=r"^histdup:[0-9a-fA-F-]{36}:\d+$"),
+            CallbackQueryHandler(friend_new_start, pattern=r"^fr:new:\d+$"),
         ],
         states={
             ASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_text)],
