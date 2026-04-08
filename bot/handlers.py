@@ -29,8 +29,10 @@ from bot.config import MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS, WEB
 from bot.database import SessionLocal
 from bot.friends_service import (
     create_friend_request,
+    is_friend,
     list_friends,
     list_incoming_requests,
+    remove_friend,
     resolve_profile_name,
     respond_friend_request,
     user_id_by_profile_name,
@@ -43,7 +45,7 @@ from bot.keyboards import (
     spam_mode_keyboard,
     time_chips_keyboard,
 )
-from bot.models import Reminder
+from bot.models import FriendReminder, Reminder
 from bot.reminder_worker import stop_reminder_by_id
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.user_prefs import (
@@ -858,12 +860,58 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         ids = await list_friends(uid)
         if not ids:
             txt = "Пока нет друзей."
-        else:
-            names = []
-            for x in ids[:50]:
-                names.append("• " + await resolve_profile_name(x))
-            txt = "Мои друзья:\n" + "\n".join(names)
-        await q.edit_message_text(txt, reply_markup=_friends_menu_kb())
+            await q.edit_message_text(txt, reply_markup=_friends_menu_kb())
+            return
+        rows: list[list[InlineKeyboardButton]] = []
+        for friend_id in ids[:50]:
+            name = await resolve_profile_name(friend_id)
+            rows.append(
+                [
+                    InlineKeyboardButton(f"📝 {name}", callback_data=f"fr:new:{friend_id}"),
+                    InlineKeyboardButton("🗑", callback_data=f"fr:delask:{friend_id}"),
+                ]
+            )
+        rows.append([InlineKeyboardButton("« Назад", callback_data="menu:friends")])
+        await q.edit_message_text("Мои друзья:", reply_markup=InlineKeyboardMarkup(rows))
+        return
+    m_new = re.fullmatch(r"fr:new:(\d+)", data)
+    if m_new:
+        friend_id = int(m_new.group(1))
+        if not await is_friend(uid, friend_id):
+            await q.edit_message_text("Этот пользователь уже не в друзьях.", reply_markup=_friends_menu_kb())
+            return
+        friend_name = await resolve_profile_name(friend_id)
+        context.user_data["await_friend_reminder_user_id"] = friend_id
+        context.user_data["await_friend_reminder_name"] = friend_name
+        await q.edit_message_text(
+            f"Для «{friend_name}» отправь текст и время одной строкой:\nНапример: Позвони маме 19 30",
+            reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
+        )
+        return
+    m_delask = re.fullmatch(r"fr:delask:(\d+)", data)
+    if m_delask:
+        friend_id = int(m_delask.group(1))
+        friend_name = await resolve_profile_name(friend_id)
+        await q.edit_message_text(
+            f"Удалить «{friend_name}» из друзей?",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("Да, удалить", callback_data=f"fr:delok:{friend_id}"),
+                        InlineKeyboardButton("Отмена", callback_data="fr:list"),
+                    ]
+                ]
+            ),
+        )
+        return
+    m_delok = re.fullmatch(r"fr:delok:(\d+)", data)
+    if m_delok:
+        friend_id = int(m_delok.group(1))
+        ok = await remove_friend(uid, friend_id)
+        if not ok:
+            await q.edit_message_text("Друг уже удалён.", reply_markup=_friends_menu_kb())
+            return
+        await q.edit_message_text("Друг удалён.", reply_markup=_friends_menu_kb())
         return
     if data == "fr:req":
         reqs = await list_incoming_requests(uid)
@@ -932,6 +980,8 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         context.user_data.pop("await_tz_offset", None)
     if data != "menu:friends":
         context.user_data.pop("await_friend_name", None)
+        context.user_data.pop("await_friend_reminder_user_id", None)
+        context.user_data.pop("await_friend_reminder_name", None)
     if data != "menu:settings":
         context.user_data.pop("await_profile_name", None)
     if data == "menu:main":
@@ -1196,6 +1246,59 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 log.warning("notify target friend request failed: %s", e)
         return
 
+    if context.user_data.get("await_friend_reminder_user_id"):
+        if update.message is None or not update.message.text or update.effective_user is None:
+            return
+        raw = update.message.text.strip()
+        parsed = parse_trailing_text_and_time(raw)
+        if not parsed:
+            await update.message.reply_text("Нужен формат: «текст 16 43» или «текст 16:43».")
+            return
+        text_part, t = parsed
+        uid = update.effective_user.id
+        friend_id = int(context.user_data["await_friend_reminder_user_id"])
+        if not await is_friend(uid, friend_id):
+            context.user_data.pop("await_friend_reminder_user_id", None)
+            context.user_data.pop("await_friend_reminder_name", None)
+            await update.message.reply_text("Этот пользователь уже не в друзьях.", reply_markup=main_menu_keyboard())
+            return
+        tz_sender = await get_user_zone(uid)
+        today = _utcnow().astimezone(tz_sender).date()
+        local_dt = datetime.combine(today, t, tzinfo=tz_sender)
+        fire_at = local_dt.astimezone(timezone.utc)
+        if fire_at <= _utcnow():
+            await update.message.reply_text("Это время сегодня уже прошло. Укажи время в будущем.")
+            return
+        async with SessionLocal() as session:
+            rem = Reminder(
+                user_id=friend_id,
+                chat_id=friend_id,
+                text=text_part.strip(),
+                fire_at=fire_at,
+                spam_interval_seconds=0,
+                spam_until_read=False,
+                active=True,
+            )
+            session.add(rem)
+            await session.flush()
+            fr = FriendReminder(
+                sender_user_id=uid,
+                receiver_user_id=friend_id,
+                reminder_id=rem.id,
+                fire_at_sender_tz=local_dt.strftime("%d.%m.%Y %H:%M"),
+                status="scheduled",
+            )
+            session.add(fr)
+            await session.commit()
+        fname = context.user_data.get("await_friend_reminder_name") or await resolve_profile_name(friend_id)
+        context.user_data.pop("await_friend_reminder_user_id", None)
+        context.user_data.pop("await_friend_reminder_name", None)
+        await update.message.reply_text(
+            f"Напоминание для «{fname}» создано на {local_dt.strftime('%d.%m.%Y %H:%M')}.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
     if not context.user_data.get("await_tz_offset"):
         return
     if update.message is None or not update.message.text or update.effective_user is None:
@@ -1372,6 +1475,28 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not m:
         return
     rid = UUID(m.group(1))
+    await q.edit_message_text(
+        "Удалить напоминание? Оно останется в истории.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Да, удалить", callback_data=f"rmc:yes:{rid}"),
+                    InlineKeyboardButton("Отмена", callback_data="menu:list"),
+                ]
+            ]
+        ),
+    )
+
+
+async def on_delete_reminder_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return
+    await q.answer()
+    m = re.fullmatch(r"rmc:yes:([0-9a-fA-F-]{36})", q.data)
+    if not m:
+        return
+    rid = UUID(m.group(1))
     uid = update.effective_user.id
     now = _utcnow()
     async with SessionLocal() as session:
@@ -1403,6 +1528,14 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def on_delete_reminder_conv_fb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Во время /new нажали 🗑 в списке — удалить и выйти из диалога."""
     await on_delete_reminder(update, context)
+    if update.effective_user:
+        _clear_pending(update.effective_user.id)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def on_delete_reminder_confirm_conv_fb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await on_delete_reminder_confirm(update, context)
     if update.effective_user:
         _clear_pending(update.effective_user.id)
     context.user_data.clear()
@@ -1732,6 +1865,7 @@ def register_handlers(app: Application) -> None:
         fallbacks=[
             # Пока открыт /new, список активных всё ещё в чате — rm:/em:/lp: должны сбрасывать диалог
             CallbackQueryHandler(on_delete_reminder_conv_fb, pattern=r"^rm:"),
+            CallbackQueryHandler(on_delete_reminder_confirm_conv_fb, pattern=r"^rmc:yes:"),
             CallbackQueryHandler(on_edit_menu_conv_fb, pattern=r"^em:"),
             CallbackQueryHandler(on_list_page_conv_fb, pattern=r"^lp:\d+$"),
             CommandHandler("cancel", cmd_cancel),
@@ -1772,6 +1906,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(on_edit_spam_menu, pattern=r"^esm:"))
     app.add_handler(CallbackQueryHandler(on_edit_spam_apply, pattern=r"^ens:"))
     app.add_handler(CallbackQueryHandler(on_delete_reminder, pattern=r"^rm:"))
+    app.add_handler(CallbackQueryHandler(on_delete_reminder_confirm, pattern=r"^rmc:yes:"))
     app.add_handler(CallbackQueryHandler(on_edit_text_start, pattern=r"^et:"))
     app.add_handler(CallbackQueryHandler(on_edit_datetime_start, pattern=r"^edt:"))
     app.add_handler(CallbackQueryHandler(on_edit_calendar, pattern=r"^ed[pnd]:"))

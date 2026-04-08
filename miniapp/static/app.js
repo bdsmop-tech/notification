@@ -207,6 +207,13 @@
     return ", один раз";
   }
 
+  function askDeleteConfirm(text) {
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return window.confirm(text);
+    }
+    return true;
+  }
+
   /**
    * Карточка напоминания. Если передан onArchive — строка с 🗑 (как в боте), иначе вся карточка — одна кнопка.
    */
@@ -267,6 +274,7 @@
               async function (rem) {
                 showErr("");
                 try {
+                  if (!askDeleteConfirm("Убрать напоминание в архив?")) return;
                   await api("/api/reminders/" + rem.id + "/archive", {
                     method: "POST",
                     body: "{}",
@@ -323,6 +331,7 @@
               async function (rem) {
                 showErr("");
                 try {
+                  if (!askDeleteConfirm("Убрать напоминание в архив?")) return;
                   await api("/api/reminders/" + rem.id + "/archive", {
                     method: "POST",
                     body: "{}",
@@ -714,6 +723,7 @@
       row2.appendChild(
         btn("В архив", async function () {
           try {
+            if (!askDeleteConfirm("Убрать напоминание в архив?")) return;
             await api("/api/reminders/" + state.detailId + "/archive", { method: "POST", body: "{}" });
             backFromDetail();
             render();
@@ -1089,6 +1099,7 @@
           del.type = "button";
           del.addEventListener("click", async function () {
             try {
+              if (!askDeleteConfirm("Удалить друга из списка?")) return;
               await api("/api/friends/" + x.user_id, { method: "DELETE" });
               render();
             } catch (e) {
