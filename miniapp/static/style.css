@@ -975,6 +975,26 @@ body {
   .tzgrid {
     grid-template-columns: repeat(6, 1fr);
   }
+
+  /* Календарь: фиксированная ширина ячеек — иначе на широком экране сетка раздувается */
+  .cal__grid {
+    grid-template-columns: repeat(7, 2.35rem);
+    width: fit-content;
+    max-width: 100%;
+    gap: 3px;
+  }
+
+  .cal__day {
+    font-size: 0.72rem;
+  }
+
+  .cal__wd {
+    font-size: 0.52rem;
+  }
+
+  .cal__cap {
+    font-size: 0.76rem;
+  }
 }
 
 /* --- ПК: шире колонка и сайдбар --- */
@@ -1031,5 +1051,9 @@ body {
 
   .tzgrid {
     grid-template-columns: repeat(7, 1fr);
+  }
+
+  .cal__grid {
+    grid-template-columns: repeat(7, 2.15rem);
   }
 }
