@@ -1,4 +1,17 @@
 (function () {
+  /* После входа на /web редирект на /#sid=… — на iOS у Safari и PWA разный localStorage; хэш доставляет токен в то же окно. */
+  try {
+    var hash = window.location.hash || "";
+    if (hash && hash.indexOf("sid=") >= 0) {
+      var m = hash.match(/[#&]sid=([^&]+)/);
+      if (m && m[1]) {
+        var sidFromHash = decodeURIComponent(m[1]);
+        if (sidFromHash) localStorage.setItem("sid", sidFromHash);
+      }
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  } catch (_) {}
+
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg && typeof tg.ready === "function") tg.ready();
   if (tg && typeof tg.expand === "function") tg.expand();
@@ -87,11 +100,16 @@
       }
     }
     const headers = Object.assign({}, base, extra);
-    const init = { method: method, headers: headers };
+    const init = { method: method, headers: headers, credentials: "same-origin" };
     if (body !== undefined && method !== "GET" && method !== "HEAD") {
       init.body = body;
     }
     const r = await fetch(path, init);
+    if (r.status === 401) {
+      try {
+        localStorage.removeItem("sid");
+      } catch (_) {}
+    }
     const text = await r.text();
     let payload = null;
     try {
@@ -187,6 +205,11 @@
       tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
     } catch (e) {
       tzLine.textContent = "";
+      if (!tg || !tg.initData) {
+        showErr(
+          "Вход не выполнен или сессия истекла. Откройте страницу входа и введите код из бота: /web",
+        );
+      }
     }
   }
 

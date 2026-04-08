@@ -52,7 +52,10 @@
         } catch (_) {}
         msgEl.textContent = "Готово. Открываем приложение…";
         window.setTimeout(function () {
-          window.location.href = "/";
+          /* #sid= нужен для PWA на iOS: отдельное хранилище от вкладки Safari — токен подхватит app.js */
+          var u = "/";
+          if (j && j.sid) u = "/#sid=" + encodeURIComponent(j.sid);
+          window.location.href = u;
         }, 500);
       } catch (e) {
         msgEl.textContent = String(e.message || e);
