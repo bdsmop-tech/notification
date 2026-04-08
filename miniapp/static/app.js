@@ -44,6 +44,7 @@
     historyPage: 0,
     outboxPage: 0,
     incomingFriendRequests: [],
+    friendsSubtab: "list",
     historyMode: "own",
     detailId: null,
     editMode: null,
@@ -51,6 +52,7 @@
     calMonth: new Date().getMonth() + 1,
     newDraft: {
       from_history_id: null,
+      reminderFor: "self",
       text: "",
       date: "",
       time: "",
@@ -610,6 +612,7 @@
           li.type = "button";
           li.addEventListener("click", function () {
             state.newDraft.from_history_id = r.id;
+            state.newDraft.reminderFor = "self";
             state.newDraft.text = r.text;
             state.newDraft.date = "";
             state.newDraft.time = "";
@@ -646,11 +649,54 @@
     }
   }
 
+  function newReminderScreenTitle() {
+    if (state.newDraft.from_history_id) return "Повтор";
+    const rf = state.newDraft.reminderFor;
+    if (rf && rf !== "self") return "Напоминание другу";
+    return "Создать напоминание";
+  }
+
   async function renderNew() {
-    setTitle(state.newDraft.from_history_id ? "Повтор" : "Создать напоминание");
+    if (state.newDraft.from_history_id) {
+      state.newDraft.reminderFor = "self";
+    }
+    setTitle(newReminderScreenTitle());
     showErr("");
     clearMain();
     const f = el("div", "form");
+
+    let frOpts = [];
+    try {
+      const frd = await api("/api/friends");
+      frOpts = frd.friends || [];
+    } catch (_) {}
+    f.appendChild(el("label", "label label--glass", "Кому"));
+    const targetSel = document.createElement("select");
+    targetSel.className = "input input--select";
+    const selfOpt = document.createElement("option");
+    selfOpt.value = "self";
+    selfOpt.textContent = "Себе";
+    targetSel.appendChild(selfOpt);
+    frOpts.forEach(function (x) {
+      const o = document.createElement("option");
+      o.value = String(x.user_id);
+      o.textContent = x.display_name || "Друг";
+      targetSel.appendChild(o);
+    });
+    const curRf = state.newDraft.reminderFor || "self";
+    if (curRf === "self" || targetSel.querySelector('option[value="' + curRf + '"]')) {
+      targetSel.value = curRf;
+    } else {
+      targetSel.value = "self";
+      state.newDraft.reminderFor = "self";
+    }
+    f.appendChild(targetSel);
+    f.appendChild(
+      el("p", "hint", "По умолчанию — себе; можно выбрать друга из списка."),
+    );
+    if (state.newDraft.from_history_id) {
+      targetSel.disabled = true;
+    }
 
     if (state.newDraft.from_history_id) {
       f.appendChild(el("p", "hint", "Тот же текст — выбери дату и время."));
@@ -792,25 +838,55 @@
     f.appendChild(spamRg.el);
     f.appendChild(custWrap);
 
-    const submit = el("button", "btn", "Создать");
+    const submit = el(
+      "button",
+      "btn",
+      state.newDraft.reminderFor === "self" ? "Создать" : "Отправить другу",
+    );
     submit.type = "button";
     submit.addEventListener("click", async function () {
       showErr("");
       try {
-        const body = {
-          spam_variant: state.newDraft.spam,
-          spam_interval_seconds: state.newDraft.customSpam,
-        };
-        if (state.newDraft.from_history_id) {
-          body.from_history_id = state.newDraft.from_history_id;
+        const forWho = state.newDraft.reminderFor || "self";
+        const spamInterval =
+          state.newDraft.spam === "custom" ? state.newDraft.customSpam : 0;
+        if (forWho !== "self") {
+          const txt = state.newDraft.text.trim();
+          if (!txt) {
+            showErr("Введите текст напоминания.");
+            return;
+          }
+          if (!state.newDraft.date || !state.newDraft.time.trim()) {
+            showErr("Укажите дату и время.");
+            return;
+          }
+          await api("/api/friends/" + forWho + "/reminders", {
+            method: "POST",
+            body: JSON.stringify({
+              text: txt,
+              date: state.newDraft.date,
+              time: state.newDraft.time.trim(),
+              spam_variant: state.newDraft.spam,
+              spam_interval_seconds: spamInterval,
+            }),
+          });
         } else {
-          body.text = state.newDraft.text.trim();
-          body.date = state.newDraft.date;
-          body.time = state.newDraft.time.trim();
+          const body = {
+            spam_variant: state.newDraft.spam,
+            spam_interval_seconds: spamInterval,
+          };
+          if (state.newDraft.from_history_id) {
+            body.from_history_id = state.newDraft.from_history_id;
+          } else {
+            body.text = state.newDraft.text.trim();
+            body.date = state.newDraft.date;
+            body.time = state.newDraft.time.trim();
+          }
+          await api("/api/reminders", { method: "POST", body: JSON.stringify(body) });
         }
-        await api("/api/reminders", { method: "POST", body: JSON.stringify(body) });
         state.newDraft = {
           from_history_id: null,
+          reminderFor: "self",
           text: "",
           date: "",
           time: "",
@@ -826,6 +902,13 @@
       }
     });
     f.appendChild(submit);
+
+    targetSel.addEventListener("change", function () {
+      state.newDraft.reminderFor = targetSel.value;
+      setTitle(newReminderScreenTitle());
+      submit.textContent =
+        state.newDraft.reminderFor === "self" ? "Создать" : "Отправить другу";
+    });
 
     if (state.newDraft.from_history_id) {
       const cancel = el("button", "btn btn--ghost", "Отмена");
@@ -1271,39 +1354,42 @@
     const box = el("div", "stack");
     mainSheet.appendChild(box);
 
-    const addPanel = el("div", "panel");
-    addPanel.appendChild(el("p", "label label--glass", "Добавить по имени профиля"));
-    const addRow = el("div", "row");
-    const idIn = el("input", "input");
-    idIn.placeholder = "например Андрей";
-    const addBtn = el("button", "btn", "Отправить заявку");
-    addBtn.type = "button";
-    addBtn.addEventListener("click", async function () {
-      showErr("");
-      try {
-        await api("/api/friends/requests", {
-          method: "POST",
-          body: JSON.stringify({ profile_name: idIn.value.trim() }),
-        });
-        idIn.value = "";
-        render();
-      } catch (e) {
-        showErr(String(e.message || e));
-      }
-    });
-    addRow.appendChild(idIn);
-    addRow.appendChild(addBtn);
-    addPanel.appendChild(addRow);
-    box.appendChild(addPanel);
+    await refreshIncomingFriendRequests();
+    const nIn = (state.incomingFriendRequests || []).length;
 
-    const reqPanel = el("div", "panel");
-    reqPanel.appendChild(el("p", "label label--glass", "Входящие заявки"));
-    try {
-      const req = await api("/api/friends/requests/incoming");
-      if (!req.requests || !req.requests.length) {
+    const subRow = el("div", "friends-subtabs");
+    const tabReq = el(
+      "button",
+      state.friendsSubtab === "requests" ? "btn btn--small" : "btn btn--ghost btn--small",
+      "Входящие" + (nIn ? " (" + nIn + ")" : ""),
+    );
+    tabReq.type = "button";
+    tabReq.addEventListener("click", function () {
+      state.friendsSubtab = "requests";
+      render();
+    });
+    const tabList = el(
+      "button",
+      state.friendsSubtab === "list" ? "btn btn--small" : "btn btn--ghost btn--small",
+      "Друзья",
+    );
+    tabList.type = "button";
+    tabList.addEventListener("click", function () {
+      state.friendsSubtab = "list";
+      render();
+    });
+    subRow.appendChild(tabReq);
+    subRow.appendChild(tabList);
+    box.appendChild(subRow);
+
+    if (state.friendsSubtab === "requests") {
+      const reqPanel = el("div", "panel");
+      reqPanel.appendChild(el("p", "label label--glass", "Входящие заявки"));
+      const list = state.incomingFriendRequests || [];
+      if (!list.length) {
         reqPanel.appendChild(el("p", "hint", "Нет входящих заявок."));
       } else {
-        req.requests.forEach(function (r) {
+        list.forEach(function (r) {
           const row = el("div", "row row--wrap");
           row.appendChild(el("span", "hint", "От: " + (r.from_display_name || "Пользователь")));
           const ok = el("button", "btn btn--small", "Принять");
@@ -1333,13 +1419,40 @@
           reqPanel.appendChild(row);
         });
       }
-    } catch (e) {
-      reqPanel.appendChild(el("p", "err", String(e.message || e)));
+      box.appendChild(reqPanel);
+      return;
     }
-    box.appendChild(reqPanel);
+
+    const addPanel = el("div", "panel");
+    addPanel.appendChild(el("p", "label label--glass", "Добавить по имени профиля"));
+    const addRow = el("div", "row");
+    const idIn = el("input", "input");
+    idIn.placeholder = "например Андрей";
+    const addBtn = el("button", "btn", "Отправить заявку");
+    addBtn.type = "button";
+    addBtn.addEventListener("click", async function () {
+      showErr("");
+      try {
+        await api("/api/friends/requests", {
+          method: "POST",
+          body: JSON.stringify({ profile_name: idIn.value.trim() }),
+        });
+        idIn.value = "";
+        render();
+      } catch (e) {
+        showErr(String(e.message || e));
+      }
+    });
+    addRow.appendChild(idIn);
+    addRow.appendChild(addBtn);
+    addPanel.appendChild(addRow);
+    box.appendChild(addPanel);
 
     const friendsPanel = el("div", "panel");
-    friendsPanel.appendChild(el("p", "label label--glass", "Поставить напоминание другу"));
+    friendsPanel.appendChild(el("p", "label label--glass", "Мои друзья"));
+    friendsPanel.appendChild(
+      el("p", "hint", "Имя — открыть «Создать» с напоминанием для этого друга."),
+    );
     try {
       const fr = await api("/api/friends");
       if (!fr.friends || !fr.friends.length) {
@@ -1347,9 +1460,28 @@
       } else {
         const friendsList = el("div", "stack");
         fr.friends.forEach(function (x) {
-          const row = el("div", "row row--wrap");
-          row.appendChild(el("span", "hint", x.display_name || "Пользователь"));
-          const del = el("button", "btn btn--ghost btn--small", "Удалить");
+          const row = el("div", "friend-row");
+          const nameBtn = el("button", "friend-row__name");
+          nameBtn.type = "button";
+          nameBtn.textContent = x.display_name || "Пользователь";
+          nameBtn.addEventListener("click", function () {
+            const now = new Date();
+            state.calYear = now.getFullYear();
+            state.calMonth = now.getMonth() + 1;
+            state.newDraft = {
+              from_history_id: null,
+              reminderFor: String(x.user_id),
+              text: "",
+              date: "",
+              time: "",
+              spam: "once",
+              customSpam: 60,
+            };
+            state.view = "new";
+            tabActive();
+            render({ tabDir: TAB_ORDER.indexOf("new") - TAB_ORDER.indexOf("friends") });
+          });
+          const del = el("button", "btn btn--ghost btn--small friend-row__del", "Удалить");
           del.type = "button";
           del.addEventListener("click", async function () {
             try {
@@ -1360,155 +1492,16 @@
               showErr(String(e.message || e));
             }
           });
+          row.appendChild(nameBtn);
           row.appendChild(del);
           friendsList.appendChild(row);
         });
         friendsPanel.appendChild(friendsList);
-
-        const friendSel = document.createElement("select");
-        friendSel.className = "input";
-        fr.friends.forEach(function (x) {
-          const o = document.createElement("option");
-          o.value = String(x.user_id);
-          o.textContent = x.display_name || "Пользователь";
-          friendSel.appendChild(o);
-        });
-        const tx = document.createElement("textarea");
-        tx.className = "input input--area";
-        tx.rows = 2;
-        tx.placeholder = "Текст";
-        const now = new Date();
-        let friendCalYear = now.getFullYear();
-        let friendCalMonth = now.getMonth() + 1;
-        let friendPickDate =
-          String(friendCalYear) + "-" + String(friendCalMonth).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
-        const calBox = el("div", "cal glass-block");
-        const calHead = el("div", "row cal__head");
-        const calPrev = el("button", "btn btn--ghost", "«");
-        const calNext = el("button", "btn btn--ghost", "»");
-        const calCap = el("span", "cal__cap", "");
-        calHead.appendChild(calPrev);
-        calHead.appendChild(calCap);
-        calHead.appendChild(calNext);
-        calBox.appendChild(calHead);
-        const calGrid = el("div", "cal__grid");
-        calBox.appendChild(calGrid);
-        async function paintFriendCal() {
-          const c = await api("/api/calendar/" + friendCalYear + "/" + friendCalMonth);
-          calCap.textContent = c.month_label;
-          calGrid.innerHTML = "";
-          c.weekday_names.forEach(function (n) {
-            calGrid.appendChild(el("div", "cal__wd", n));
-          });
-          c.weeks.forEach(function (week) {
-            week.forEach(function (d) {
-              const cell = el("button", "cal__day");
-              if (d == null) {
-                cell.classList.add("cal__day--muted");
-                cell.disabled = true;
-              } else {
-                const y = friendCalYear;
-                const m = friendCalMonth;
-                const mm = String(m).padStart(2, "0");
-                const dd = String(d).padStart(2, "0");
-                const val = String(y) + "-" + mm + "-" + dd;
-                cell.textContent = String(d);
-                cell.type = "button";
-                if (val === friendPickDate) cell.classList.add("cal__day--pick");
-                cell.addEventListener("click", function () {
-                  friendPickDate = val;
-                  Array.from(calGrid.querySelectorAll(".cal__day--pick")).forEach(function (x) {
-                    x.classList.remove("cal__day--pick");
-                  });
-                  cell.classList.add("cal__day--pick");
-                });
-              }
-              calGrid.appendChild(cell);
-            });
-          });
-        }
-        calPrev.addEventListener("click", function () {
-          friendCalMonth -= 1;
-          if (friendCalMonth < 1) {
-            friendCalMonth = 12;
-            friendCalYear -= 1;
-          }
-          paintFriendCal().catch(function (e) {
-            showErr(String(e.message || e));
-          });
-        });
-        calNext.addEventListener("click", function () {
-          friendCalMonth += 1;
-          if (friendCalMonth > 12) {
-            friendCalMonth = 1;
-            friendCalYear += 1;
-          }
-          paintFriendCal().catch(function (e) {
-            showErr(String(e.message || e));
-          });
-        });
-        const tIn = el("input", "input");
-        tIn.placeholder = "Время 16:43";
-        const spamRg = spamModeRadiogroup("once", function (v) {
-          if (v !== "custom") custWrap.hidden = true;
-          else custWrap.hidden = false;
-        });
-        let spamPick = "once";
-        spamRg.el.querySelectorAll(".glass-opt").forEach(function (b) {
-          b.addEventListener("click", function () {
-            spamPick = b.getAttribute("data-value") || "once";
-            custWrap.hidden = spamPick !== "custom";
-          });
-        });
-        const custWrap = el("div", "spam-custom");
-        const cIn = el("input", "input");
-        cIn.type = "number";
-        cIn.min = "0";
-        cIn.value = "60";
-        custWrap.hidden = true;
-        custWrap.appendChild(el("small", "hint", "Секунды для своего интервала"));
-        custWrap.appendChild(cIn);
-        const send = el("button", "btn", "Поставить другу");
-        send.type = "button";
-        send.addEventListener("click", async function () {
-          try {
-            await api("/api/friends/" + friendSel.value + "/reminders", {
-              method: "POST",
-              body: JSON.stringify({
-                text: tx.value.trim(),
-                date: friendPickDate,
-                time: tIn.value.trim(),
-                spam_variant: spamPick,
-                spam_interval_seconds: spamPick === "custom" ? parseInt(cIn.value, 10) || 0 : 0,
-              }),
-            });
-            tx.value = "";
-            tIn.value = "";
-            render();
-          } catch (e) {
-            showErr(String(e.message || e));
-          }
-        });
-        friendsPanel.appendChild(friendSel);
-        friendsPanel.appendChild(tx);
-        const friendCalField = el("div", "cal-field");
-        friendCalField.appendChild(el("label", "label label--glass", "Дата"));
-        friendCalField.appendChild(calBox);
-        friendsPanel.appendChild(friendCalField);
-        paintFriendCal().catch(function (e) {
-          showErr(String(e.message || e));
-        });
-        friendsPanel.appendChild(tIn);
-        friendsPanel.appendChild(el("label", "label label--glass", "Повтор"));
-        friendsPanel.appendChild(spamRg.el);
-        friendsPanel.appendChild(custWrap);
-        friendsPanel.appendChild(send);
       }
     } catch (e) {
       friendsPanel.appendChild(el("p", "err", String(e.message || e)));
     }
     box.appendChild(friendsPanel);
-
   }
 
   function renderHelp() {
@@ -1524,6 +1517,7 @@
           "• История — нажатие: повтор с тем же текстом.",
           "• В уведомлении в чате: Прочитал, Стоп, отложить — как в боте.",
           "• Пояс: список IANA (tzdata, DST) или фиксированное UTC±N в настройках.",
+          "• Друзья: вкладки «Входящие» и «Друзья»; напоминание другу — «Создать» (поле «Кому») или клик по имени.",
         ].join("\n"),
       ),
     );
