@@ -57,6 +57,11 @@ async def init_db() -> None:
         )
         await conn.execute(
             text(
+                "ALTER TABLE user_settings ALTER COLUMN timezone TYPE VARCHAR(128)"
+            )
+        )
+        await conn.execute(
+            text(
                 """
                 CREATE TABLE IF NOT EXISTS friend_requests (
                     id SERIAL PRIMARY KEY,

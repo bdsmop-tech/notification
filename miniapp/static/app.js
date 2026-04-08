@@ -28,6 +28,7 @@
   const mainRoot = document.getElementById("main");
   const mainSheet = document.getElementById("mainSheet");
   const globalErr = document.getElementById("globalErr");
+  const friendReqBanner = document.getElementById("friendReqBanner");
   const tabs = document.getElementById("tabs");
   const navPill = tabs ? tabs.querySelector(".nav-pill") : null;
 
@@ -42,6 +43,7 @@
     activePage: 0,
     historyPage: 0,
     outboxPage: 0,
+    incomingFriendRequests: [],
     historyMode: "own",
     detailId: null,
     editMode: null,
@@ -226,12 +228,84 @@
     }
   }
 
+  function paintFriendRequestBanner() {
+    if (!friendReqBanner) return;
+    friendReqBanner.innerHTML = "";
+    const list = state.incomingFriendRequests || [];
+    if (!list.length) {
+      friendReqBanner.hidden = true;
+      return;
+    }
+    friendReqBanner.hidden = false;
+    friendReqBanner.appendChild(
+      el("p", "friend-req-banner__title", "Вас хотят добавить в друзья"),
+    );
+    list.forEach(function (r) {
+      const row = el("div", "friend-req-banner__row");
+      row.appendChild(
+        el(
+          "span",
+          "friend-req-banner__who",
+          "От: " + (r.from_display_name || "Пользователь"),
+        ),
+      );
+      const ok = el("button", "btn btn--small", "Добавить");
+      ok.type = "button";
+      ok.addEventListener("click", function () {
+        showErr("");
+        api("/api/friends/requests/" + r.id + "/accept", { method: "POST", body: "{}" })
+          .then(function () {
+            return refreshIncomingFriendRequests();
+          })
+          .then(function () {
+            if (state.view === "friends") render();
+          })
+          .catch(function (err) {
+            showErr(String(err.message || err));
+          });
+      });
+      const rej = el("button", "btn btn--ghost btn--small", "Отклонить");
+      rej.type = "button";
+      rej.addEventListener("click", function () {
+        showErr("");
+        api("/api/friends/requests/" + r.id + "/reject", { method: "POST", body: "{}" })
+          .then(function () {
+            return refreshIncomingFriendRequests();
+          })
+          .then(function () {
+            if (state.view === "friends") render();
+          })
+          .catch(function (err) {
+            showErr(String(err.message || err));
+          });
+      });
+      row.appendChild(ok);
+      row.appendChild(rej);
+      friendReqBanner.appendChild(row);
+    });
+  }
+
+  function refreshIncomingFriendRequests() {
+    return api("/api/friends/requests/incoming")
+      .then(function (inc) {
+        state.incomingFriendRequests = inc.requests || [];
+        paintFriendRequestBanner();
+      })
+      .catch(function () {
+        state.incomingFriendRequests = [];
+        paintFriendRequestBanner();
+      });
+  }
+
   async function loadMe() {
     try {
       me = await api("/api/me");
       tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
+      await refreshIncomingFriendRequests();
     } catch (e) {
       tzLine.textContent = "";
+      state.incomingFriendRequests = [];
+      paintFriendRequestBanner();
       if (!tg || !tg.initData) {
         showErr(
           "Вход не выполнен или код недействителен. Откройте /web и введите код из бота.",
@@ -1047,12 +1121,78 @@
       me = await api("/api/me");
       tzLine.textContent = me.tz_label ? "Пояс: " + me.tz_label : "";
 
-      box.appendChild(el("p", "label label--glass", "Часовой пояс (смещение от UTC)"));
-      const grid = el("div", "tzgrid glass-block");
+      box.appendChild(
+        el("p", "label label--glass", "Часовой пояс (IANA, летнее / зимнее время)"),
+      );
+      box.appendChild(
+        el(
+          "p",
+          "hint",
+          "Список из базы tzdata: автоматический переход на летнее и зимнее время по правилам страны.",
+        ),
+      );
+      const tzSel = document.createElement("select");
+      tzSel.className = "input input--select";
+      const ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = "Загрузка списка…";
+      ph.disabled = true;
+      ph.selected = true;
+      tzSel.appendChild(ph);
+      box.appendChild(tzSel);
+      try {
+        const tzData = await api("/api/me/timezones");
+        tzSel.innerHTML = "";
+        const defOpt = document.createElement("option");
+        defOpt.value = "";
+        defOpt.textContent = "— выберите пояс из списка —";
+        const ianaSelected = me.timezone_mode === "iana" && me.timezone_iana;
+        defOpt.selected = !ianaSelected;
+        tzSel.appendChild(defOpt);
+        tzData.groups.forEach(function (g) {
+          const og = document.createElement("optgroup");
+          og.label = g.region_label;
+          g.zones.forEach(function (z) {
+            const opt = document.createElement("option");
+            opt.value = z.id;
+            opt.textContent = z.label;
+            if (ianaSelected && me.timezone_iana === z.id) {
+              opt.selected = true;
+              defOpt.selected = false;
+            }
+            og.appendChild(opt);
+          });
+          tzSel.appendChild(og);
+        });
+      } catch (errTz) {
+        tzSel.innerHTML = "";
+        const errOpt = document.createElement("option");
+        errOpt.textContent = "Не удалось загрузить список поясов";
+        errOpt.disabled = true;
+        tzSel.appendChild(errOpt);
+        showErr(String(errTz.message || errTz));
+      }
+      tzSel.addEventListener("change", async function () {
+        const v = (tzSel.value || "").trim();
+        if (!v) return;
+        try {
+          await api("/api/me/timezone", { method: "POST", body: JSON.stringify({ iana: v }) });
+          await loadMe();
+          render();
+        } catch (err) {
+          showErr(String(err.message || err));
+        }
+      });
+
+      box.appendChild(el("p", "label label--glass", "Или фиксированное UTC (без DST)"));
+      box.appendChild(
+        el("p", "hint", "Только сдвиг от UTC, без перехода на летнее время."),
+      );
+      const offGrid = el("div", "tzgrid glass-block");
       for (let h = -12; h <= 14; h++) {
-        const b = el("button", "tz", h === 0 ? "0" : (h > 0 ? "+" + h : String(h)));
+        const b = el("button", "tz", h === 0 ? "0" : h > 0 ? "+" + h : String(h));
         b.type = "button";
-        if (me.offset_hours === h) b.classList.add("tz--on");
+        if (me.timezone_mode === "offset" && me.offset_hours === h) b.classList.add("tz--on");
         b.addEventListener("click", async function () {
           try {
             await api("/api/me/timezone", {
@@ -1061,13 +1201,13 @@
             });
             await loadMe();
             render();
-          } catch (e) {
-            showErr(String(e.message || e));
+          } catch (err) {
+            showErr(String(err.message || err));
           }
         });
-        grid.appendChild(b);
+        offGrid.appendChild(b);
       }
-      box.appendChild(grid);
+      box.appendChild(offGrid);
 
       const qh = el("button", "btn", me.quiet_hours_enabled ? "Тихие часы: вкл" : "Тихие часы: выкл");
       qh.type = "button";
@@ -1171,6 +1311,7 @@
           ok.addEventListener("click", async function () {
             try {
               await api("/api/friends/requests/" + r.id + "/accept", { method: "POST", body: "{}" });
+              await refreshIncomingFriendRequests();
               render();
             } catch (e) {
               showErr(String(e.message || e));
@@ -1181,6 +1322,7 @@
           rej.addEventListener("click", async function () {
             try {
               await api("/api/friends/requests/" + r.id + "/reject", { method: "POST", body: "{}" });
+              await refreshIncomingFriendRequests();
               render();
             } catch (e) {
               showErr(String(e.message || e));
@@ -1381,7 +1523,7 @@
           "• Создать — текст, дата в календаре, время, режим повтора.",
           "• История — нажатие: повтор с тем же текстом.",
           "• В уведомлении в чате: Прочитал, Стоп, отложить — как в боте.",
-          "• Пояс UTC: кнопки −12…+14.",
+          "• Пояс: список IANA (tzdata, DST) или фиксированное UTC±N в настройках.",
         ].join("\n"),
       ),
     );
@@ -1422,6 +1564,7 @@
     function paint() {
       clearMain();
       renderContent();
+      paintFriendRequestBanner();
     }
 
     if (useAnim) {

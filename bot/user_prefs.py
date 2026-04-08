@@ -48,6 +48,8 @@ async def touch_user_settings(user_id: int) -> None:
 
 
 async def set_user_timezone(user_id: int, tz_name: str) -> ZoneInfo:
+    if len(tz_name) > 120:
+        raise ValueError("timezone id too long")
     z = ZoneInfo(tz_name)
     async with SessionLocal() as session:
         row = await session.get(UserSettings, user_id)

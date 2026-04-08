@@ -6,9 +6,10 @@ import calendar as cal_module
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, nulls_last, select, update
 
 from bot.config import BOT_TOKEN, MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS
@@ -25,6 +26,7 @@ from bot.friends_service import (
 )
 from bot.models import FriendReminder, Reminder
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
+from bot.timezone_catalog import build_timezone_catalog
 from bot.tma_validate import validate_telegram_init_data
 from bot.user_prefs import (
     format_tz_label,
@@ -32,6 +34,7 @@ from bot.user_prefs import (
     get_user_settings_row,
     get_user_zone,
     set_user_profile_name,
+    set_user_timezone,
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
@@ -228,11 +231,21 @@ async def api_config() -> dict:
 async def api_me(user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     row = await get_user_settings_row(user_id)
-    off = await _offset_hours(user_id)
+    raw = (row.timezone if row and row.timezone else "") or "Europe/Moscow"
+    if raw.startswith("offset:"):
+        timezone_mode = "offset"
+        timezone_iana = None
+        off = await _offset_hours(user_id)
+    else:
+        timezone_mode = "iana"
+        timezone_iana = raw
+        off = None
     return {
         "user_id": user_id,
         "tz_label": format_tz_label(tz),
         "profile_name": (row.profile_name if row and row.profile_name else None),
+        "timezone_mode": timezone_mode,
+        "timezone_iana": timezone_iana,
         "offset_hours": off,
         "quiet_hours_enabled": bool(row and row.quiet_hours_enabled),
         "min_spam_interval_seconds": MIN_SPAM_INTERVAL_SECONDS,
@@ -240,17 +253,55 @@ async def api_me(user_id: UserId) -> dict:
     }
 
 
-class TimezoneBody(BaseModel):
-    offset_hours: int = Field(ge=-12, le=14)
+@router.get("/me/timezones")
+async def api_timezones_catalog(user_id: UserId) -> dict:
+    """Список IANA-зон с актуальным смещением (учёт летнего времени через tzdata)."""
+    return {"groups": build_timezone_catalog()}
+
+
+class SetTimezoneBody(BaseModel):
+    """Либо iana (рекомендуется, с DST), либо offset_hours (фиксированное UTC±N)."""
+
+    iana: str | None = None
+    offset_hours: int | None = Field(default=None, ge=-12, le=14)
+
+    @model_validator(mode="after")
+    def exactly_one(self) -> SetTimezoneBody:
+        has_i = self.iana is not None and str(self.iana).strip() != ""
+        has_o = self.offset_hours is not None
+        if has_i == has_o:
+            raise ValueError("Укажите либо iana, либо offset_hours.")
+        return self
 
 
 @router.post("/me/timezone")
-async def api_set_timezone(body: TimezoneBody, user_id: UserId) -> dict:
+async def api_set_timezone(body: SetTimezoneBody, user_id: UserId) -> dict:
+    if body.iana is not None and str(body.iana).strip():
+        name = str(body.iana).strip()
+        if len(name) > 120:
+            raise HTTPException(status_code=400, detail="iana too long") from None
+        try:
+            tz = await set_user_timezone(user_id, name)
+        except ZoneInfoNotFoundError:
+            raise HTTPException(status_code=400, detail="Неизвестный часовой пояс.") from None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Некорректный идентификатор пояса.") from None
+        return {
+            "tz_label": format_tz_label(tz),
+            "timezone_mode": "iana",
+            "timezone_iana": name,
+            "offset_hours": None,
+        }
     try:
-        tz = await set_user_timezone_offset_hours(user_id, body.offset_hours)
+        tz = await set_user_timezone_offset_hours(user_id, body.offset_hours)  # type: ignore[arg-type]
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid offset") from None
-    return {"tz_label": format_tz_label(tz), "offset_hours": body.offset_hours}
+    return {
+        "tz_label": format_tz_label(tz),
+        "timezone_mode": "offset",
+        "timezone_iana": None,
+        "offset_hours": body.offset_hours,
+    }
 
 
 class ProfileNameBody(BaseModel):

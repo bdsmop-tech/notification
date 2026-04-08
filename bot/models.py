@@ -17,7 +17,7 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
+    timezone: Mapped[str] = mapped_column(String(128), default="Europe/Moscow")
     profile_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     quiet_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     quiet_start_hour: Mapped[int] = mapped_column(Integer, default=23)
