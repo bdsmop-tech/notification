@@ -1,5 +1,12 @@
-const CACHE_NAME = "reminder-pwa-v1";
-const URLS = ["/", "/web", "/manifest.webmanifest", "/app/static/style.css?v=13", "/app/static/app.js?v=13"];
+const CACHE_NAME = "reminder-pwa-v2";
+const URLS = [
+  "/",
+  "/web",
+  "/offline",
+  "/manifest.webmanifest",
+  "/app/static/style.css?v=13",
+  "/app/static/app.js?v=13",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -23,18 +30,22 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.pathname.startsWith("/api/")) return; // API всегда из сети
+  const isNavigation = event.request.mode === "navigate";
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
-          return resp;
-        })
-        .catch(() => caches.match("/web"));
-    }),
+    fetch(event.request)
+      .then((resp) => {
+        const copy = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        return resp;
+      })
+      .catch(() =>
+        caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          if (isNavigation) return caches.match("/offline");
+          return new Response("", { status: 503, statusText: "Offline" });
+        }),
+      ),
   );
 });
 

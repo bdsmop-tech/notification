@@ -62,6 +62,13 @@ def create_app() -> FastAPI:
                 return JSONResponse({"error": "miniapp/web.html not found"}, status_code=503)
             return FileResponse(web_path, media_type="text/html")
 
+        @app.get("/offline", response_model=None)
+        async def offline_page() -> FileResponse | JSONResponse:
+            p = MINIAPP_ROOT / "offline.html"
+            if not p.is_file():
+                return JSONResponse({"error": "miniapp/offline.html not found"}, status_code=503)
+            return FileResponse(p, media_type="text/html")
+
         @app.get("/manifest.webmanifest", response_model=None)
         async def manifest() -> FileResponse | JSONResponse:
             p = MINIAPP_ROOT / "manifest.webmanifest"

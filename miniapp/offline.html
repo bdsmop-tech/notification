@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#007F3E" />
+  <title>Нет сети</title>
+  <style>
+    :root {
+      --bg: #eef1ee;
+      --glass: rgba(0, 127, 62, 0.82);
+      --frost: rgba(232, 249, 238, 0.96);
+      --text: #1a1a1a;
+      --muted: rgba(26, 26, 26, 0.65);
+      --shadow: 0 12px 30px rgba(0, 40, 25, 0.18), 0 2px 8px rgba(0, 40, 25, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 10%, #f8fcf9 0%, var(--bg) 45%, #e4ece6 100%);
+      padding: calc(1rem + env(safe-area-inset-top, 0)) 0.9rem calc(1rem + env(safe-area-inset-bottom, 0));
+    }
+    .card {
+      width: min(28rem, 100%);
+      border-radius: 18px;
+      padding: 1rem 0.9rem 0.95rem;
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(18px) saturate(145%);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+      text-align: center;
+    }
+    .anim {
+      position: relative;
+      width: 84px;
+      height: 84px;
+      margin: 0.15rem auto 0.55rem;
+    }
+    .ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 127, 62, 0.32);
+      animation: ping 2.1s infinite;
+    }
+    .ring:nth-child(2) { animation-delay: 0.7s; }
+    .ring:nth-child(3) { animation-delay: 1.4s; }
+    .dot {
+      position: absolute;
+      inset: 18px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--glass);
+      color: var(--frost);
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+      font-size: 24px;
+      animation: bob 1.7s ease-in-out infinite;
+    }
+    h1 {
+      margin: 0 0 0.2rem 0;
+      font-size: 1.12rem;
+      font-weight: 700;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .actions {
+      margin-top: 0.7rem;
+      display: flex;
+      justify-content: center;
+      gap: 0.45rem;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.48rem 0.88rem;
+      cursor: pointer;
+      font-weight: 600;
+      font-family: inherit;
+    }
+    .primary {
+      color: #fff;
+      background: #007f3e;
+      box-shadow: 0 4px 14px rgba(0, 100, 50, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+    .ghost {
+      color: #007f3e;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(0, 127, 62, 0.15);
+      backdrop-filter: blur(10px);
+    }
+    @keyframes ping {
+      0% { transform: scale(0.45); opacity: 0.55; }
+      100% { transform: scale(1.15); opacity: 0; }
+    }
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="anim" aria-hidden="true">
+      <span class="ring"></span>
+      <span class="ring"></span>
+      <span class="ring"></span>
+      <span class="dot">📡</span>
+    </div>
+    <h1>Сети нет</h1>
+    <p>Интернет пропал, но приложение рядом. Как только связь вернется, синхронизация продолжится.</p>
+    <div class="actions">
+      <button class="primary" type="button" onclick="location.reload()">Повторить</button>
+      <button class="ghost" type="button" onclick="location.href='/'">На главную</button>
+    </div>
+  </div>
+</body>
+</html>
