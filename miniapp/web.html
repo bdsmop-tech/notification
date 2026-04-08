@@ -33,6 +33,24 @@
     const msgEl = document.getElementById("msg");
     const go = document.getElementById("go");
 
+    /* Уже вошли (токен/cookie/старый код) — сразу в приложение, без формы */
+    (async function tryExistingSession() {
+      try {
+        var tok = (localStorage.getItem("web_token") || "").trim();
+        var code = (localStorage.getItem("user_code") || "").trim();
+        var headers = {};
+        if (tok) headers.Authorization = "Bearer " + tok;
+        else if (code) {
+          headers["X-User-Code"] = code;
+          headers.Authorization = "LoginCode " + code;
+        }
+        var init = { credentials: "same-origin" };
+        if (Object.keys(headers).length) init.headers = headers;
+        var r = await fetch("/api/me", init);
+        if (r.ok) window.location.replace("/");
+      } catch (_) {}
+    })();
+
     async function login() {
       msgEl.textContent = "";
       go.disabled = true;

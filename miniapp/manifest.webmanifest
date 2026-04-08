@@ -1,7 +1,7 @@
 {
   "name": "Напоминания",
   "short_name": "Remind",
-  "start_url": "/web",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#EEF1EE",

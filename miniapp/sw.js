@@ -1,4 +1,4 @@
-const CACHE_NAME = "reminder-pwa-v12";
+const CACHE_NAME = "reminder-pwa-v13";
 const URLS = [
   "/",
   "/web",
