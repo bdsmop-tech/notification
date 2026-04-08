@@ -26,14 +26,6 @@ async def get_user_zone(user_id: int) -> tzinfo:
         row = await session.get(UserSettings, user_id)
         if row is None or not row.timezone:
             return DEFAULT_TZ
-
-
-async def touch_user_settings(user_id: int) -> None:
-    async with SessionLocal() as session:
-        row = await session.get(UserSettings, user_id)
-        if row is None:
-            session.add(UserSettings(user_id=user_id))
-            await session.commit()
         raw = row.timezone
         if raw.startswith("offset:"):
             try:
@@ -45,6 +37,14 @@ async def touch_user_settings(user_id: int) -> None:
             return ZoneInfo(raw)
         except ZoneInfoNotFoundError:
             return DEFAULT_TZ
+
+
+async def touch_user_settings(user_id: int) -> None:
+    async with SessionLocal() as session:
+        row = await session.get(UserSettings, user_id)
+        if row is None:
+            session.add(UserSettings(user_id=user_id))
+            await session.commit()
 
 
 async def set_user_timezone(user_id: int, tz_name: str) -> ZoneInfo:
