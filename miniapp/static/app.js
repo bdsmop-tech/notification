@@ -70,7 +70,11 @@
     if (!d) {
       try {
         const code = (localStorage.getItem("user_code") || "").trim();
-        if (code) h["X-User-Code"] = code;
+        if (code) {
+          h["X-User-Code"] = code;
+          /* Прокси часто режут X-*; Authorization почти всегда пробрасывается */
+          h.Authorization = "LoginCode " + code;
+        }
       } catch (_) {}
     }
     if (json) h["Content-Type"] = "application/json";
@@ -110,6 +114,10 @@
         localStorage.removeItem("user_code");
         localStorage.removeItem("sid");
       } catch (_) {}
+      /* HttpOnly cookie user_code с сервера — только через logout */
+      fetch("/api/web/logout", { method: "POST", credentials: "same-origin", body: "{}" }).catch(
+        function () {},
+      );
     }
     const text = await r.text();
     let payload = null;

@@ -42,6 +42,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code }),
+          credentials: "same-origin",
         });
         const t = await r.text();
         let j = null;

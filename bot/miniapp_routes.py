@@ -63,9 +63,21 @@ async def require_user(
         except (KeyError, TypeError, ValueError):
             raise HTTPException(status_code=401, detail="Invalid user in initData") from None
 
-    # Web/PWA: постоянный код из бота (таблица login_codes)
+    # Web/PWA: cookie (надёжнее, чем кастомные заголовки за прокси)
+    cookie_code = request.cookies.get("user_code")
+    if cookie_code and str(cookie_code).strip():
+        uid = await user_id_from_login_code(str(cookie_code))
+        if uid:
+            return uid
+
+    # Web/PWA: заголовки (fallback)
     if x_user_code and x_user_code.strip():
         uid = await user_id_from_login_code(x_user_code)
+        if uid:
+            return uid
+
+    if authorization and authorization.lower().startswith("logincode "):
+        uid = await user_id_from_login_code(authorization[10:].strip())
         if uid:
             return uid
 
@@ -681,13 +693,26 @@ class WebLoginBody(BaseModel):
 
 
 @router.post("/web/login")
-async def web_login(body: WebLoginBody, response: Response) -> dict:
-    """Проверяет код; клиент хранит его в localStorage и шлёт в X-User-Code на каждый запрос."""
+async def web_login(body: WebLoginBody, request: Request, response: Response) -> dict:
+    """Проверяет код; ставит HttpOnly cookie user_code (и клиент дублирует в localStorage)."""
     uid = await user_id_from_login_code(body.code)
     if not uid:
         raise HTTPException(status_code=401, detail="bad code")
-    # Убрать старую cookie-сессию, чтобы не путать со схемой по коду
     response.delete_cookie("sid", path="/")
+    code = body.code.strip()
+    max_age = 10 * 365 * 24 * 60 * 60
+    secure_cookie = request.url.scheme == "https"
+    expires_at = _utcnow() + timedelta(seconds=max_age)
+    response.set_cookie(
+        "user_code",
+        code,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=max_age,
+        expires=expires_at,
+        path="/",
+    )
     return {"ok": True}
 
 
@@ -697,4 +722,5 @@ async def web_logout(request: Request, response: Response) -> dict:
     if sid:
         await revoke_session(sid)
     response.delete_cookie("sid", path="/")
+    response.delete_cookie("user_code", path="/")
     return {"ok": True}
