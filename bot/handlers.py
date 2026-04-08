@@ -45,6 +45,7 @@ from bot.user_prefs import (
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
+from bot.web_auth import issue_login_code
 
 ASK_TEXT, ASK_DATE, ASK_TIME, ASK_SPAM, ASK_SPAM_CUSTOM = range(5)
 PAGE_SIZE = 5
@@ -164,8 +165,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     tz = await get_user_zone(update.effective_user.id) if update.effective_user else None
     tz_line = f"Пояс: {format_tz_label(tz)}" if tz else ""
+    code_line = ""
+    if update.effective_user:
+        code = await issue_login_code(update.effective_user.id)
+        code_line = f"\n\nКод для входа на сайт: {code}\nОткрой сайт `/web` и введи этот код (действует 5 минут)."
     await update.message.reply_text(
-        "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line,
+        "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line + code_line,
         reply_markup=main_menu_keyboard(),
     )
 

@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, nulls_last, select, update
 
@@ -24,6 +24,7 @@ from bot.user_prefs import (
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
+from bot.web_auth import exchange_code_for_session, revoke_session, user_id_from_session
 
 PAGE_SIZE = 5
 
@@ -34,20 +35,29 @@ def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-async def require_tma_user(authorization: str | None = Header(None)) -> int:
-    if not authorization or not authorization.startswith("tma "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization")
-    raw = authorization[4:].strip()
-    data = validate_telegram_init_data(raw, BOT_TOKEN)
-    if not data or "user" not in data:
-        raise HTTPException(status_code=401, detail="Invalid initData")
-    try:
-        return int(data["user"]["id"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Invalid user in initData") from None
+async def require_user(request: Request, authorization: str | None = Header(None)) -> int:
+    # Telegram Mini App
+    if authorization and authorization.startswith("tma "):
+        raw = authorization[4:].strip()
+        data = validate_telegram_init_data(raw, BOT_TOKEN)
+        if not data or "user" not in data:
+            raise HTTPException(status_code=401, detail="Invalid initData")
+        try:
+            return int(data["user"]["id"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="Invalid user in initData") from None
+
+    # Web/PWA cookie session
+    sid = request.cookies.get("sid")
+    if sid:
+        uid = await user_id_from_session(sid)
+        if uid:
+            return uid
+
+    raise HTTPException(status_code=401, detail="Missing auth")
 
 
-TmaUser = Annotated[int, Depends(require_tma_user)]
+UserId = Annotated[int, Depends(require_user)]
 
 
 def _spam_variant_to_db(
@@ -127,7 +137,7 @@ async def api_config() -> dict:
 
 
 @router.get("/me")
-async def api_me(user_id: TmaUser) -> dict:
+async def api_me(user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     row = await get_user_settings_row(user_id)
     off = await _offset_hours(user_id)
@@ -146,7 +156,7 @@ class TimezoneBody(BaseModel):
 
 
 @router.post("/me/timezone")
-async def api_set_timezone(body: TimezoneBody, user_id: TmaUser) -> dict:
+async def api_set_timezone(body: TimezoneBody, user_id: UserId) -> dict:
     try:
         tz = await set_user_timezone_offset_hours(user_id, body.offset_hours)
     except ValueError:
@@ -155,13 +165,13 @@ async def api_set_timezone(body: TimezoneBody, user_id: TmaUser) -> dict:
 
 
 @router.post("/me/quiet-hours/toggle")
-async def api_toggle_quiet(user_id: TmaUser) -> dict:
+async def api_toggle_quiet(user_id: UserId) -> dict:
     on = await toggle_quiet_hours(user_id)
     return {"quiet_hours_enabled": on}
 
 
 @router.get("/calendar/{year}/{month}")
-async def api_calendar(year: int, month: int, user_id: TmaUser) -> dict:
+async def api_calendar(year: int, month: int, user_id: UserId) -> dict:
     if not (1 <= month <= 12):
         raise HTTPException(status_code=400, detail="bad month")
     c = cal_module.Calendar(firstweekday=0)
@@ -175,7 +185,7 @@ async def api_calendar(year: int, month: int, user_id: TmaUser) -> dict:
 
 
 @router.get("/reminders/active")
-async def reminders_active(user_id: TmaUser, page: int = 0) -> dict:
+async def reminders_active(user_id: UserId, page: int = 0) -> dict:
     tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         count = await session.scalar(
@@ -204,7 +214,7 @@ async def reminders_active(user_id: TmaUser, page: int = 0) -> dict:
 
 
 @router.get("/reminders/today")
-async def reminders_today(user_id: TmaUser) -> dict:
+async def reminders_today(user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     today = _utcnow().astimezone(tz).date()
     async with SessionLocal() as session:
@@ -219,7 +229,7 @@ async def reminders_today(user_id: TmaUser) -> dict:
 
 
 @router.get("/reminders/history")
-async def reminders_history(user_id: TmaUser, page: int = 0) -> dict:
+async def reminders_history(user_id: UserId, page: int = 0) -> dict:
     tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         count = await session.scalar(
@@ -248,7 +258,7 @@ async def reminders_history(user_id: TmaUser, page: int = 0) -> dict:
 
 
 @router.get("/reminders/{reminder_id}")
-async def reminder_one(reminder_id: UUID, user_id: TmaUser) -> dict:
+async def reminder_one(reminder_id: UUID, user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
@@ -278,7 +288,7 @@ def _parse_local_date(s: str) -> date:
 
 
 @router.post("/reminders")
-async def reminder_create(body: CreateReminderBody, user_id: TmaUser) -> dict:
+async def reminder_create(body: CreateReminderBody, user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     text = (body.text or "").strip()
     if body.from_history_id:
@@ -347,7 +357,7 @@ class PatchReminderBody(BaseModel):
 
 
 @router.patch("/reminders/{reminder_id}")
-async def reminder_patch(reminder_id: UUID, body: PatchReminderBody, user_id: TmaUser) -> dict:
+async def reminder_patch(reminder_id: UUID, body: PatchReminderBody, user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
@@ -382,7 +392,7 @@ class PatchSpamBody(BaseModel):
 
 
 @router.patch("/reminders/{reminder_id}/spam")
-async def reminder_patch_spam(reminder_id: UUID, body: PatchSpamBody, user_id: TmaUser) -> dict:
+async def reminder_patch_spam(reminder_id: UUID, body: PatchSpamBody, user_id: UserId) -> dict:
     """Только режим повтора (как кнопки ens: в боте)."""
     tz = await get_user_zone(user_id)
     spam, until_read = _spam_variant_to_db(body.spam_variant, body.spam_interval_seconds)
@@ -398,7 +408,7 @@ async def reminder_patch_spam(reminder_id: UUID, body: PatchSpamBody, user_id: T
 
 
 @router.post("/reminders/{reminder_id}/archive")
-async def reminder_archive(reminder_id: UUID, user_id: TmaUser) -> dict:
+async def reminder_archive(reminder_id: UUID, user_id: UserId) -> dict:
     now = _utcnow()
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
@@ -418,7 +428,7 @@ class SnoozeBody(BaseModel):
 
 
 @router.post("/reminders/{reminder_id}/snooze")
-async def reminder_snooze(reminder_id: UUID, body: SnoozeBody, user_id: TmaUser) -> dict:
+async def reminder_snooze(reminder_id: UUID, body: SnoozeBody, user_id: UserId) -> dict:
     tz = await get_user_zone(user_id)
     now = _utcnow()
     async with SessionLocal() as session:
@@ -432,8 +442,39 @@ async def reminder_snooze(reminder_id: UUID, body: SnoozeBody, user_id: TmaUser)
 
 
 @router.post("/reminders/{reminder_id}/stop")
-async def reminder_stop(reminder_id: UUID, user_id: TmaUser) -> dict:
+async def reminder_stop(reminder_id: UUID, user_id: UserId) -> dict:
     ok = await stop_reminder_by_id(reminder_id, user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True}
+
+
+class WebLoginBody(BaseModel):
+    code: str
+
+
+@router.post("/web/login")
+async def web_login(body: WebLoginBody, response: Response) -> dict:
+    ex = await exchange_code_for_session(body.code)
+    if not ex:
+        raise HTTPException(status_code=401, detail="bad code")
+    raw_token, _uid = ex
+    response.set_cookie(
+        "sid",
+        raw_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=30 * 24 * 60 * 60,
+        path="/",
+    )
+    return {"ok": True}
+
+
+@router.post("/web/logout")
+async def web_logout(request: Request, response: Response) -> dict:
+    sid = request.cookies.get("sid")
+    if sid:
+        await revoke_session(sid)
+    response.delete_cookie("sid", path="/")
     return {"ok": True}

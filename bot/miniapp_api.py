@@ -55,6 +55,13 @@ def create_app() -> FastAPI:
                 return JSONResponse({"error": "miniapp/index.html not found"}, status_code=503)
             return FileResponse(index_path, media_type="text/html")
 
+        @app.get("/web", response_model=None)
+        async def web_login_page() -> FileResponse | JSONResponse:
+            web_path = MINIAPP_ROOT / "web.html"
+            if not web_path.is_file():
+                return JSONResponse({"error": "miniapp/web.html not found"}, status_code=503)
+            return FileResponse(web_path, media_type="text/html")
+
     return app
 
 

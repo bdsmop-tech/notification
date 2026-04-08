@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Вход</title>
+  <link rel="stylesheet" href="/app/static/style.css?v=12" />
+  <style>
+    .web-wrap { padding: 0.9rem 0.8rem 1.2rem; }
+    .web-card { max-width: 28rem; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div class="web-wrap">
+    <div class="web-card panel">
+      <h1 class="title" style="margin:0 0 .35rem 0;">Вход</h1>
+      <p class="hint" style="margin:0 0 .6rem 0;">Открой бота в Telegram и скопируй код входа.</p>
+      <label class="label label--glass" for="code">Код</label>
+      <input id="code" class="input" inputmode="numeric" autocomplete="one-time-code" placeholder="например 123456" />
+      <button id="go" class="btn" type="button">Войти</button>
+      <p id="msg" class="hint" style="margin:.55rem 0 0 0;"></p>
+    </div>
+  </div>
+
+  <script>
+    const codeEl = document.getElementById("code");
+    const msgEl = document.getElementById("msg");
+    const go = document.getElementById("go");
+
+    async function login() {
+      msgEl.textContent = "";
+      go.disabled = true;
+      try {
+        const code = (codeEl.value || "").trim();
+        const r = await fetch("/api/web/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const t = await r.text();
+        let j = null;
+        try { j = t ? JSON.parse(t) : null; } catch (_) {}
+        if (!r.ok) throw new Error((j && (j.detail || j.error)) || ("Ошибка " + r.status));
+        msgEl.textContent = "Готово. Можно открыть приложение.";
+      } catch (e) {
+        msgEl.textContent = String(e.message || e);
+      } finally {
+        go.disabled = false;
+      }
+    }
+
+    go.addEventListener("click", login);
+    codeEl.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+  </script>
+</body>
+</html>
+
