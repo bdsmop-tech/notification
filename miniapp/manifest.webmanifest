@@ -6,5 +6,13 @@
   "display": "standalone",
   "background_color": "#EEF1EE",
   "theme_color": "#007F3E",
-  "description": "Напоминания с синхронизацией через Telegram-бота"
+  "description": "Напоминания с синхронизацией через Telegram-бота",
+  "icons": [
+    {
+      "src": "/app/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

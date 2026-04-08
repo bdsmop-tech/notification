@@ -9,6 +9,7 @@
   const mainSheet = document.getElementById("mainSheet");
   const globalErr = document.getElementById("globalErr");
   const tabs = document.getElementById("tabs");
+  const navPill = tabs ? tabs.querySelector(".nav-pill") : null;
 
   /** Вкладки нижней панели — для свайпа и анимации перелистывания */
   const TAB_ORDER = ["active", "today", "history", "new", "settings"];
@@ -154,6 +155,13 @@
     tabs.querySelectorAll(".tab").forEach(function (b) {
       b.classList.toggle("tab--on", b.getAttribute("data-view") === state.view);
     });
+    if (navPill) {
+      const items = Array.from(navPill.querySelectorAll(".tab--item"));
+      const idx = items.findIndex(function (b) {
+        return b.getAttribute("data-view") === state.view;
+      });
+      navPill.style.setProperty("--pill-index", String(idx >= 0 ? idx : 0));
+    }
     const on = tabs.querySelector(".tab--on");
     if (
       on &&

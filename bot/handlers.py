@@ -168,7 +168,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     code_line = ""
     if update.effective_user:
         code = await issue_login_code(update.effective_user.id)
-        code_line = f"\n\nКод для входа на сайт: {code}\nОткрой сайт `/web` и введи этот код (действует 5 минут)."
+        code_line = f"\n\nКод для входа на сайт: {code}\nОткрой сайт `/web` и введи этот код (постоянный)."
     await update.message.reply_text(
         "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line + code_line,
         reply_markup=main_menu_keyboard(),

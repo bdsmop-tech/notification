@@ -180,6 +180,7 @@ body {
 .nav-pill {
   flex: 1;
   min-width: 0;
+  position: relative;
   display: flex;
   align-items: stretch;
   justify-content: space-between;
@@ -191,6 +192,21 @@ body {
   backdrop-filter: blur(22px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: var(--rail-float-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.nav-pill::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: calc((100% - 10px) / 4);
+  height: calc(100% - 10px);
+  border-radius: 100px;
+  background: var(--rail-frost);
+  box-shadow: 0 2px 10px rgba(0, 50, 30, 0.12);
+  transform: translateX(calc(var(--pill-index, 0) * 100%));
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+  pointer-events: none;
 }
 
 @supports not (backdrop-filter: blur(1px)) {
@@ -226,7 +242,9 @@ body {
   padding: 0.35rem 0.2rem 0.42rem;
   border-radius: 100px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.88);
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -253,8 +271,8 @@ body {
 
 .tab--item.tab--on {
   color: var(--accent-green);
-  background: var(--rail-frost);
-  box-shadow: 0 2px 10px rgba(0, 50, 30, 0.12);
+  background: transparent;
+  box-shadow: none;
 }
 
 .tab--item.tab--on .tab__icon {

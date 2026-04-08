@@ -4,8 +4,9 @@ const URLS = [
   "/web",
   "/offline",
   "/manifest.webmanifest",
-  "/app/static/style.css?v=13",
-  "/app/static/app.js?v=13",
+  "/app/static/style.css?v=14",
+  "/app/static/app.js?v=14",
+  "/app/static/icon.svg",
 ];
 
 self.addEventListener("install", (event) => {

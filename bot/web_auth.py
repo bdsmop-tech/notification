@@ -14,20 +14,24 @@ def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-async def issue_login_code(user_id: int, *, ttl_minutes: int = 5) -> str:
+async def issue_login_code(user_id: int) -> str:
     """
-    Создаёт одноразовый цифровой код для входа на сайт (TTL по умолчанию 5 минут).
-    Предыдущие активные коды пользователя инвалидируются.
+    Постоянный код для входа на сайт.
+    Генерируется один раз и дальше переиспользуется.
     """
     now = _utcnow()
-    exp = now + timedelta(minutes=ttl_minutes)
+    exp = now + timedelta(days=3650)
     async with SessionLocal() as session:
-        await session.execute(
-            sql_update(LoginCode)
-            .where(LoginCode.user_id == user_id, LoginCode.consumed_at.is_(None))
-            .values(consumed_at=now)
+        existing = await session.scalar(
+            select(LoginCode.code).where(
+                LoginCode.user_id == user_id,
+                LoginCode.consumed_at.is_(None),
+                LoginCode.expires_at > now,
+            )
         )
-        # пытаемся сгенерировать уникальный код
+        if existing:
+            return str(existing)
+        # генерируем новый постоянный код
         for _ in range(10):
             code = f"{secrets.randbelow(1_000_000):06d}"
             exists = await session.scalar(
@@ -62,7 +66,6 @@ async def exchange_code_for_session(code: str, *, session_days: int = 30) -> tup
         )
         if row is None:
             return None
-        row.consumed_at = now
         raw = secrets.token_urlsafe(32)
         token_sha = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         session.add(
