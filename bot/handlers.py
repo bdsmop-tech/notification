@@ -993,37 +993,39 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if m_acc:
         rid = int(m_acc.group(1))
         try:
-            req = await respond_friend_request(rid, uid, True)
+            req, did_respond = await respond_friend_request(rid, uid, True)
         except ValueError:
             await q.edit_message_text("Заявка не найдена.", reply_markup=_friends_menu_kb())
             return
         await q.edit_message_text("Заявка принята.", reply_markup=_friends_menu_kb())
-        try:
-            to_name = await resolve_profile_name(uid)
-            await context.bot.send_message(
-                chat_id=req.from_user_id,
-                text=f"{to_name} принял(а) вашу заявку в друзья.",
-            )
-        except Exception as e:
-            log.warning("notify requester accepted failed: %s", e)
+        if did_respond:
+            try:
+                to_name = await resolve_profile_name(uid)
+                await context.bot.send_message(
+                    chat_id=req.from_user_id,
+                    text=f"{to_name} принял(а) вашу заявку в друзья.",
+                )
+            except Exception as e:
+                log.warning("notify requester accepted failed: %s", e)
         return
     m_rej = re.fullmatch(r"fr:rej:(\d+)", data)
     if m_rej:
         rid = int(m_rej.group(1))
         try:
-            req = await respond_friend_request(rid, uid, False)
+            req, did_respond = await respond_friend_request(rid, uid, False)
         except ValueError:
             await q.edit_message_text("Заявка не найдена.", reply_markup=_friends_menu_kb())
             return
         await q.edit_message_text("Заявка отклонена.", reply_markup=_friends_menu_kb())
-        try:
-            to_name = await resolve_profile_name(uid)
-            await context.bot.send_message(
-                chat_id=req.from_user_id,
-                text=f"{to_name} отклонил(а) вашу заявку в друзья.",
-            )
-        except Exception as e:
-            log.warning("notify requester rejected failed: %s", e)
+        if did_respond:
+            try:
+                to_name = await resolve_profile_name(uid)
+                await context.bot.send_message(
+                    chat_id=req.from_user_id,
+                    text=f"{to_name} отклонил(а) вашу заявку в друзья.",
+                )
+            except Exception as e:
+                log.warning("notify requester rejected failed: %s", e)
         return
 
 
@@ -1269,7 +1271,7 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         uid = update.effective_user.id
         try:
-            req = await create_friend_request(uid, target)
+            req, notify_target = await create_friend_request(uid, target)
         except ValueError as e:
             code = str(e)
             if code == "cannot_add_self":
@@ -1286,7 +1288,7 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         context.user_data.pop("await_friend_name", None)
         await update.message.reply_text("Заявка отправлена.", reply_markup=main_menu_keyboard())
-        if req.status == "pending":
+        if notify_target:
             try:
                 from_name = await resolve_profile_name(uid)
                 await context.bot.send_message(

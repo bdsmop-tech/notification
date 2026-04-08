@@ -11,6 +11,7 @@ from telegram.request import HTTPXRequest
 from bot.config import BOT_TOKEN, WEBAPP_PUBLIC_URL
 from bot.database import init_db
 from bot.handlers import register_handlers
+from bot.ptb_holder import set_ptb_application
 from bot.reminder_worker import reminder_loop
 
 _MINIAPP_HTTP_ENV = "MINIAPP_HTTP"
@@ -40,6 +41,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     async def post_init(app: Application) -> None:
+        set_ptb_application(app)
         # Polling не совместим с активным webhook; снимаем webhook на всякий случай.
         await app.bot.delete_webhook(drop_pending_updates=True)
         await init_db()

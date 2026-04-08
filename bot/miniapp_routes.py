@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import calendar as cal_module
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, nulls_last, select, update
 
@@ -25,6 +27,7 @@ from bot.friends_service import (
     user_id_by_profile_name,
 )
 from bot.models import FriendReminder, Reminder
+from bot.ptb_holder import get_ptb_bot
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.timezone_catalog import build_timezone_catalog
 from bot.tma_validate import validate_telegram_init_data
@@ -47,7 +50,47 @@ from bot.web_auth import (
 
 PAGE_SIZE = 5
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["miniapp"])
+
+
+async def _notify_new_friend_request(target_chat_id: int, from_user_id: int, request_id: int) -> None:
+    bot = get_ptb_bot()
+    if bot is None:
+        return
+    from_name = await resolve_profile_name(from_user_id)
+    try:
+        await bot.send_message(
+            chat_id=target_chat_id,
+            text=f"Вам пришла заявка в друзья от «{from_name}».",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("Принять", callback_data=f"fr:acc:{request_id}"),
+                        InlineKeyboardButton("Отклонить", callback_data=f"fr:rej:{request_id}"),
+                    ]
+                ]
+            ),
+        )
+    except Exception as e:
+        log.warning("notify target friend request (miniapp) failed: %s", e)
+
+
+async def _notify_requester_friend_response(from_user_id: int, responder_user_id: int, accepted: bool) -> None:
+    bot = get_ptb_bot()
+    if bot is None:
+        return
+    to_name = await resolve_profile_name(responder_user_id)
+    text = (
+        f"{to_name} принял(а) вашу заявку в друзья."
+        if accepted
+        else f"{to_name} отклонил(а) вашу заявку в друзья."
+    )
+    try:
+        await bot.send_message(chat_id=from_user_id, text=text)
+    except Exception as e:
+        log.warning("notify requester friend response (miniapp) failed: %s", e)
 
 
 def _utcnow() -> datetime:
@@ -714,7 +757,7 @@ async def friends_request_create(body: CreateFriendRequestBody, user_id: UserId)
     if target_user_id is None:
         raise HTTPException(status_code=404, detail="Пользователь с таким именем не найден.")
     try:
-        req = await create_friend_request(user_id, target_user_id)
+        req, notify_target = await create_friend_request(user_id, target_user_id)
     except ValueError as e:
         code = str(e)
         if code == "cannot_add_self":
@@ -724,24 +767,30 @@ async def friends_request_create(body: CreateFriendRequestBody, user_id: UserId)
         if code == "already_friends":
             raise HTTPException(status_code=400, detail="already friends") from None
         raise HTTPException(status_code=400, detail=code) from None
+    if notify_target:
+        await _notify_new_friend_request(target_user_id, user_id, req.id)
     return {"request": _serialize_friend_request(req)}
 
 
 @router.post("/friends/requests/{request_id}/accept")
 async def friends_request_accept(request_id: int, user_id: UserId) -> dict:
     try:
-        req = await respond_friend_request(request_id, user_id, True)
+        req, did_respond = await respond_friend_request(request_id, user_id, True)
     except ValueError:
         raise HTTPException(status_code=404, detail="request not found") from None
+    if did_respond:
+        await _notify_requester_friend_response(req.from_user_id, user_id, True)
     return {"request": _serialize_friend_request(req)}
 
 
 @router.post("/friends/requests/{request_id}/reject")
 async def friends_request_reject(request_id: int, user_id: UserId) -> dict:
     try:
-        req = await respond_friend_request(request_id, user_id, False)
+        req, did_respond = await respond_friend_request(request_id, user_id, False)
     except ValueError:
         raise HTTPException(status_code=404, detail="request not found") from None
+    if did_respond:
+        await _notify_requester_friend_response(req.from_user_id, user_id, False)
     return {"request": _serialize_friend_request(req)}
 
 

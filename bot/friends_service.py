@@ -87,7 +87,11 @@ async def list_incoming_requests(user_id: int) -> list[FriendRequest]:
         return rows.scalars().all()
 
 
-async def create_friend_request(from_user_id: int, to_user_id: int) -> FriendRequest:
+async def create_friend_request(from_user_id: int, to_user_id: int) -> tuple[FriendRequest, bool]:
+    """
+    Создаёт заявку. Второй элемент — True, если создана новая pending-заявка
+    (нужно уведомить получателя); False при дубликате или автопринятии.
+    """
     if from_user_id == to_user_id:
         raise ValueError("cannot_add_self")
     if not await user_exists(to_user_id):
@@ -122,7 +126,7 @@ async def create_friend_request(from_user_id: int, to_user_id: int) -> FriendReq
             session.add(req)
             await session.commit()
             await session.refresh(req)
-            return req
+            return req, False
 
         # повтор запроса не плодим
         existing = await session.scalar(
@@ -133,22 +137,23 @@ async def create_friend_request(from_user_id: int, to_user_id: int) -> FriendReq
             )
         )
         if existing is not None:
-            return existing
+            return existing, False
 
         req = FriendRequest(from_user_id=from_user_id, to_user_id=to_user_id, status="pending")
         session.add(req)
         await session.commit()
         await session.refresh(req)
-        return req
+        return req, True
 
 
-async def respond_friend_request(request_id: int, user_id: int, accept: bool) -> FriendRequest:
+async def respond_friend_request(request_id: int, user_id: int, accept: bool) -> tuple[FriendRequest, bool]:
+    """Второй элемент True, если заявка была pending и ответ записан (один раз)."""
     async with SessionLocal() as session:
         req = await session.get(FriendRequest, request_id)
         if req is None or req.to_user_id != user_id:
             raise ValueError("request_not_found")
         if req.status != "pending":
-            return req
+            return req, False
 
         req.status = "accepted" if accept else "rejected"
         req.responded_at = _utcnow()
@@ -161,4 +166,4 @@ async def respond_friend_request(request_id: int, user_id: int, accept: bool) ->
                 session.add(Friendship(user_low_id=low, user_high_id=high))
         await session.commit()
         await session.refresh(req)
-        return req
+        return req, True
