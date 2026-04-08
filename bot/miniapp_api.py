@@ -62,6 +62,20 @@ def create_app() -> FastAPI:
                 return JSONResponse({"error": "miniapp/web.html not found"}, status_code=503)
             return FileResponse(web_path, media_type="text/html")
 
+        @app.get("/manifest.webmanifest", response_model=None)
+        async def manifest() -> FileResponse | JSONResponse:
+            p = MINIAPP_ROOT / "manifest.webmanifest"
+            if not p.is_file():
+                return JSONResponse({"error": "miniapp/manifest.webmanifest not found"}, status_code=503)
+            return FileResponse(p, media_type="application/manifest+json")
+
+        @app.get("/sw.js", response_model=None)
+        async def sw() -> FileResponse | JSONResponse:
+            p = MINIAPP_ROOT / "sw.js"
+            if not p.is_file():
+                return JSONResponse({"error": "miniapp/sw.js not found"}, status_code=503)
+            return FileResponse(p, media_type="application/javascript")
+
     return app
 
 

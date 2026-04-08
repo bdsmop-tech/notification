@@ -1,7 +1,7 @@
 (function () {
-  const tg = window.Telegram.WebApp;
-  tg.ready();
-  tg.expand();
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  if (tg && typeof tg.ready === "function") tg.ready();
+  if (tg && typeof tg.expand === "function") tg.expand();
 
   const titleEl = document.getElementById("screenTitle");
   const tzLine = document.getElementById("tzLine");
@@ -39,7 +39,7 @@
     document.body.style.backgroundColor = "";
     document.body.style.color = "";
   }
-  if (tg.onEvent) tg.onEvent("themeChanged", theme);
+  if (tg && tg.onEvent) tg.onEvent("themeChanged", theme);
   theme();
 
   function showErr(msg) {
@@ -48,9 +48,9 @@
   }
 
   function authHeaders(json) {
-    const d = tg.initData;
-    if (!d) return null;
-    const h = { Authorization: "tma " + d };
+    const d = tg && tg.initData ? tg.initData : "";
+    const h = {};
+    if (d) h.Authorization = "tma " + d;
     if (json) h["Content-Type"] = "application/json";
     return h;
   }
@@ -69,7 +69,6 @@
     const body = Object.prototype.hasOwnProperty.call(o, "body") ? o.body : undefined;
     const jsonBody = typeof body === "string";
     const base = authHeaders(jsonBody);
-    if (!base) throw new Error("Откройте из Telegram.");
     let extra = {};
     if (o.headers != null && typeof o.headers === "object" && !Array.isArray(o.headers)) {
       try {
@@ -930,10 +929,6 @@
   }
 
   function renderContent() {
-    if (!tg.initData) {
-      mainSheet.appendChild(el("p", "err", "Откройте мини-приложение из Telegram."));
-      return;
-    }
     if (state.view === "active") renderActive();
     else if (state.view === "today") renderToday();
     else if (state.view === "history") renderHistory();
@@ -1032,4 +1027,10 @@
   }
 
   loadMe().then(render);
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
 })();

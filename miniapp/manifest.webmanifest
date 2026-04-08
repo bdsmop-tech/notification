@@ -1,0 +1,10 @@
+{
+  "name": "Напоминания",
+  "short_name": "Remind",
+  "start_url": "/web",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#EEF1EE",
+  "theme_color": "#007F3E",
+  "description": "Напоминания с синхронизацией через Telegram-бота"
+}
