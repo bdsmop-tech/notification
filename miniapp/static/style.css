@@ -976,18 +976,42 @@ body {
     grid-template-columns: repeat(6, 1fr);
   }
 
-  /* Календарь: одна ширина для шапки и сетки (без пустоты справа и «разъехавшегося» месяца) */
+  /* Подпись «Дата» и календарь — вместе по центру (на телефоне подпись слева) */
+  .cal-field {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+  }
+
+  .cal-field > .label {
+    align-self: stretch;
+    text-align: center;
+    margin: 0;
+  }
+
+  /*
+    Ширина border-box должна включать padding и рамку .glass-block, иначе
+    сетка шире контента → обрезание справа (main__sheet overflow-x: hidden).
+  */
   .cal.glass-block {
     --cal-gap: 3px;
-    --cal-cell: 2.35rem;
+    --cal-cell: 2.2rem;
+    --cal-pad-x: 0.55rem;
     box-sizing: border-box;
-    width: min(100%, calc(7 * var(--cal-cell) + 6 * var(--cal-gap)));
+    width: min(
+      100%,
+      calc(7 * var(--cal-cell) + 6 * var(--cal-gap) + 2 * var(--cal-pad-x) + 2px)
+    );
     margin-left: auto;
     margin-right: auto;
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 0.35rem;
+    gap: 0.3rem;
+    padding-top: 0.4rem;
+    padding-bottom: 0.35rem;
   }
 
   .cal .cal__head {
@@ -1077,6 +1101,6 @@ body {
   }
 
   .cal.glass-block {
-    --cal-cell: 2.15rem;
+    --cal-cell: 1.9rem;
   }
 }

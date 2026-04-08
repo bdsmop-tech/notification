@@ -623,8 +623,10 @@
         }
         paintCal();
       });
-      f.appendChild(el("label", "label label--glass", "Дата"));
-      f.appendChild(calBox);
+      const calField = el("div", "cal-field");
+      calField.appendChild(el("label", "label label--glass", "Дата"));
+      calField.appendChild(calBox);
+      f.appendChild(calField);
       paintCal().catch(function (e) {
         showErr(String(e.message || e));
       });
@@ -1301,8 +1303,10 @@
         });
         friendsPanel.appendChild(friendSel);
         friendsPanel.appendChild(tx);
-        friendsPanel.appendChild(el("label", "label label--glass", "Дата"));
-        friendsPanel.appendChild(calBox);
+        const friendCalField = el("div", "cal-field");
+        friendCalField.appendChild(el("label", "label label--glass", "Дата"));
+        friendCalField.appendChild(calBox);
+        friendsPanel.appendChild(friendCalField);
         paintFriendCal().catch(function (e) {
           showErr(String(e.message || e));
         });
