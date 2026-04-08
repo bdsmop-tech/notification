@@ -199,7 +199,7 @@ body {
   position: absolute;
   top: 5px;
   left: 5px;
-  width: calc((100% - 10px) / 4);
+  width: calc((100% - 10px) / 5);
   height: calc(100% - 10px);
   border-radius: 100px;
   background: var(--rail-frost);

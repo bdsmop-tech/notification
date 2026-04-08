@@ -41,6 +41,59 @@ async def init_db() -> None:
                 "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quiet_end_hour INTEGER NOT NULL DEFAULT 7"
             )
         )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS friend_requests (
+                    id SERIAL PRIMARY KEY,
+                    from_user_id BIGINT NOT NULL,
+                    to_user_id BIGINT NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    responded_at TIMESTAMPTZ NULL
+                )
+                """
+            )
+        )
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_requests_from_user_id ON friend_requests(from_user_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_requests_to_user_id ON friend_requests(to_user_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_requests_status ON friend_requests(status)"))
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS friendships (
+                    id SERIAL PRIMARY KEY,
+                    user_low_id BIGINT NOT NULL,
+                    user_high_id BIGINT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_friendships_pair ON friendships(user_low_id, user_high_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friendships_user_low_id ON friendships(user_low_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friendships_user_high_id ON friendships(user_high_id)"))
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS friend_reminders (
+                    id SERIAL PRIMARY KEY,
+                    sender_user_id BIGINT NOT NULL,
+                    receiver_user_id BIGINT NOT NULL,
+                    reminder_id UUID NOT NULL,
+                    fire_at_sender_tz VARCHAR(32) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'scheduled',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    delivered_at TIMESTAMPTZ NULL,
+                    closed_at TIMESTAMPTZ NULL
+                )
+                """
+            )
+        )
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_reminders_sender_user_id ON friend_reminders(sender_user_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_reminders_receiver_user_id ON friend_reminders(receiver_user_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_reminders_reminder_id ON friend_reminders(reminder_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_friend_reminders_status ON friend_reminders(status)"))
 
 
 @asynccontextmanager

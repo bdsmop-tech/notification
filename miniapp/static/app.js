@@ -12,7 +12,7 @@
   const navPill = tabs ? tabs.querySelector(".nav-pill") : null;
 
   /** Вкладки нижней панели — для свайпа и анимации перелистывания */
-  const TAB_ORDER = ["active", "today", "history", "new", "settings"];
+  const TAB_ORDER = ["active", "today", "history", "friends", "new", "settings"];
 
   let me = null;
 
@@ -21,6 +21,7 @@
     backFromDetail: "active",
     activePage: 0,
     historyPage: 0,
+    outboxPage: 0,
     detailId: null,
     editMode: null,
     calYear: new Date().getFullYear(),
@@ -910,6 +911,157 @@
     }
   }
 
+  async function renderFriends() {
+    setTitle("Друзья");
+    showErr("");
+    clearMain();
+    const box = el("div", "stack");
+    mainSheet.appendChild(box);
+
+    const addPanel = el("div", "panel");
+    addPanel.appendChild(el("p", "label label--glass", "Добавить по Telegram ID"));
+    const addRow = el("div", "row");
+    const idIn = el("input", "input");
+    idIn.placeholder = "например 123456789";
+    const addBtn = el("button", "btn", "Отправить заявку");
+    addBtn.type = "button";
+    addBtn.addEventListener("click", async function () {
+      showErr("");
+      try {
+        await api("/api/friends/requests", {
+          method: "POST",
+          body: JSON.stringify({ telegram_user_id: parseInt(idIn.value, 10) || 0 }),
+        });
+        idIn.value = "";
+        render();
+      } catch (e) {
+        showErr(String(e.message || e));
+      }
+    });
+    addRow.appendChild(idIn);
+    addRow.appendChild(addBtn);
+    addPanel.appendChild(addRow);
+    box.appendChild(addPanel);
+
+    const reqPanel = el("div", "panel");
+    reqPanel.appendChild(el("p", "label label--glass", "Входящие заявки"));
+    try {
+      const req = await api("/api/friends/requests/incoming");
+      if (!req.requests || !req.requests.length) {
+        reqPanel.appendChild(el("p", "hint", "Нет входящих заявок."));
+      } else {
+        req.requests.forEach(function (r) {
+          const row = el("div", "row row--wrap");
+          row.appendChild(el("span", "hint", "От пользователя " + r.from_user_id));
+          const ok = el("button", "btn btn--small", "Принять");
+          ok.type = "button";
+          ok.addEventListener("click", async function () {
+            try {
+              await api("/api/friends/requests/" + r.id + "/accept", { method: "POST", body: "{}" });
+              render();
+            } catch (e) {
+              showErr(String(e.message || e));
+            }
+          });
+          const rej = el("button", "btn btn--ghost btn--small", "Отклонить");
+          rej.type = "button";
+          rej.addEventListener("click", async function () {
+            try {
+              await api("/api/friends/requests/" + r.id + "/reject", { method: "POST", body: "{}" });
+              render();
+            } catch (e) {
+              showErr(String(e.message || e));
+            }
+          });
+          row.appendChild(ok);
+          row.appendChild(rej);
+          reqPanel.appendChild(row);
+        });
+      }
+    } catch (e) {
+      reqPanel.appendChild(el("p", "err", String(e.message || e)));
+    }
+    box.appendChild(reqPanel);
+
+    const friendsPanel = el("div", "panel");
+    friendsPanel.appendChild(el("p", "label label--glass", "Поставить напоминание другу"));
+    try {
+      const fr = await api("/api/friends");
+      if (!fr.friends || !fr.friends.length) {
+        friendsPanel.appendChild(el("p", "hint", "Список друзей пуст."));
+      } else {
+        const friendSel = document.createElement("select");
+        friendSel.className = "input";
+        fr.friends.forEach(function (x) {
+          const o = document.createElement("option");
+          o.value = String(x.user_id);
+          o.textContent = "ID " + x.user_id;
+          friendSel.appendChild(o);
+        });
+        const tx = document.createElement("textarea");
+        tx.className = "input input--area";
+        tx.rows = 2;
+        tx.placeholder = "Текст";
+        const dIn = el("input", "input");
+        dIn.placeholder = "Дата YYYY-MM-DD";
+        const tIn = el("input", "input");
+        tIn.placeholder = "Время 16:43";
+        const send = el("button", "btn", "Поставить другу");
+        send.type = "button";
+        send.addEventListener("click", async function () {
+          try {
+            await api("/api/friends/" + friendSel.value + "/reminders", {
+              method: "POST",
+              body: JSON.stringify({
+                text: tx.value.trim(),
+                date: dIn.value.trim(),
+                time: tIn.value.trim(),
+                spam_variant: "once",
+                spam_interval_seconds: 0,
+              }),
+            });
+            tx.value = "";
+            dIn.value = "";
+            tIn.value = "";
+            render();
+          } catch (e) {
+            showErr(String(e.message || e));
+          }
+        });
+        friendsPanel.appendChild(friendSel);
+        friendsPanel.appendChild(tx);
+        friendsPanel.appendChild(dIn);
+        friendsPanel.appendChild(tIn);
+        friendsPanel.appendChild(send);
+      }
+    } catch (e) {
+      friendsPanel.appendChild(el("p", "err", String(e.message || e)));
+    }
+    box.appendChild(friendsPanel);
+
+    const outPanel = el("div", "panel");
+    outPanel.appendChild(el("p", "label label--glass", "Отправленные друзьям"));
+    try {
+      const out = await api("/api/friends/reminders/outbox?page=" + state.outboxPage);
+      if (!out.items || !out.items.length) {
+        outPanel.appendChild(el("p", "hint", "Пока пусто."));
+      } else {
+        out.items.forEach(function (x) {
+          outPanel.appendChild(
+            el(
+              "p",
+              "hint",
+              "#" + x.id + " -> " + x.receiver_user_id + " | " + x.fire_at_sender_tz + " | " + x.status,
+            ),
+          );
+        });
+      }
+    } catch (e) {
+      outPanel.appendChild(el("p", "err", String(e.message || e)));
+    }
+    box.appendChild(outPanel);
+  }
+
   function renderHelp() {
     setTitle("Справка");
     clearMain();
@@ -941,6 +1093,7 @@
     if (state.view === "active") renderActive();
     else if (state.view === "today") renderToday();
     else if (state.view === "history") renderHistory();
+    else if (state.view === "friends") renderFriends();
     else if (state.view === "new") renderNew();
     else if (state.view === "settings") renderSettings();
     else if (state.view === "help") renderHelp();
@@ -994,6 +1147,7 @@
     state.editMode = null;
     if (v === "active") state.activePage = 0;
     if (v === "history") state.historyPage = 0;
+    if (v === "friends") state.outboxPage = 0;
     const tabDir = iPrev >= 0 && iNext >= 0 ? iNext - iPrev : 0;
     render({ tabDir: tabDir });
   });

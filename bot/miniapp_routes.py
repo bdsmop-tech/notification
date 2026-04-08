@@ -13,7 +13,14 @@ from sqlalchemy import func, nulls_last, select, update
 
 from bot.config import BOT_TOKEN, MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS
 from bot.database import SessionLocal
-from bot.models import Reminder
+from bot.friends_service import (
+    create_friend_request,
+    is_friend,
+    list_friends,
+    list_incoming_requests,
+    respond_friend_request,
+)
+from bot.models import FriendReminder, Reminder
 from bot.reminder_worker import stop_reminder_by_id
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.tma_validate import validate_telegram_init_data
@@ -114,6 +121,31 @@ def _serialize_reminder(r: Reminder, tz) -> dict:
         "spam_interval_seconds": r.spam_interval_seconds,
         "spam_until_read": r.spam_until_read,
         "closed_at_local": closed_local.strftime("%d.%m.%Y %H:%M") if closed_local else None,
+    }
+
+
+def _serialize_friend_request(r) -> dict:
+    return {
+        "id": r.id,
+        "from_user_id": r.from_user_id,
+        "to_user_id": r.to_user_id,
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "responded_at": r.responded_at.isoformat() if r.responded_at else None,
+    }
+
+
+def _serialize_friend_reminder(x: FriendReminder) -> dict:
+    return {
+        "id": x.id,
+        "sender_user_id": x.sender_user_id,
+        "receiver_user_id": x.receiver_user_id,
+        "reminder_id": str(x.reminder_id),
+        "fire_at_sender_tz": x.fire_at_sender_tz,
+        "status": x.status,
+        "created_at": x.created_at.isoformat() if x.created_at else None,
+        "delivered_at": x.delivered_at.isoformat() if x.delivered_at else None,
+        "closed_at": x.closed_at.isoformat() if x.closed_at else None,
     }
 
 
@@ -419,6 +451,11 @@ async def reminder_archive(reminder_id: UUID, user_id: UserId) -> dict:
             .where(Reminder.id == reminder_id)
             .values(active=False, closed_at=now)
         )
+        await session.execute(
+            update(FriendReminder)
+            .where(FriendReminder.reminder_id == reminder_id, FriendReminder.receiver_user_id == user_id)
+            .values(status="closed", closed_at=now)
+        )
         await session.commit()
     return {"ok": True}
 
@@ -446,7 +483,134 @@ async def reminder_stop(reminder_id: UUID, user_id: UserId) -> dict:
     ok = await stop_reminder_by_id(reminder_id, user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="not found")
+    async with SessionLocal() as session:
+        await session.execute(
+            update(FriendReminder)
+            .where(FriendReminder.reminder_id == reminder_id, FriendReminder.receiver_user_id == user_id)
+            .values(status="closed", closed_at=_utcnow())
+        )
+        await session.commit()
     return {"ok": True}
+
+
+class CreateFriendRequestBody(BaseModel):
+    telegram_user_id: int
+
+
+@router.get("/friends")
+async def friends_list(user_id: UserId) -> dict:
+    ids = await list_friends(user_id)
+    return {"friends": [{"user_id": x} for x in ids]}
+
+
+@router.get("/friends/requests/incoming")
+async def friends_requests_incoming(user_id: UserId) -> dict:
+    rows = await list_incoming_requests(user_id)
+    return {"requests": [_serialize_friend_request(x) for x in rows]}
+
+
+@router.post("/friends/requests")
+async def friends_request_create(body: CreateFriendRequestBody, user_id: UserId) -> dict:
+    try:
+        req = await create_friend_request(user_id, body.telegram_user_id)
+    except ValueError as e:
+        code = str(e)
+        if code == "cannot_add_self":
+            raise HTTPException(status_code=400, detail="cannot add self") from None
+        if code == "target_not_found":
+            raise HTTPException(status_code=404, detail="target user not found") from None
+        if code == "already_friends":
+            raise HTTPException(status_code=400, detail="already friends") from None
+        raise HTTPException(status_code=400, detail=code) from None
+    return {"request": _serialize_friend_request(req)}
+
+
+@router.post("/friends/requests/{request_id}/accept")
+async def friends_request_accept(request_id: int, user_id: UserId) -> dict:
+    try:
+        req = await respond_friend_request(request_id, user_id, True)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="request not found") from None
+    return {"request": _serialize_friend_request(req)}
+
+
+@router.post("/friends/requests/{request_id}/reject")
+async def friends_request_reject(request_id: int, user_id: UserId) -> dict:
+    try:
+        req = await respond_friend_request(request_id, user_id, False)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="request not found") from None
+    return {"request": _serialize_friend_request(req)}
+
+
+class CreateFriendReminderBody(BaseModel):
+    text: str
+    date: str
+    time: str
+    spam_variant: SpamVariant = "once"
+    spam_interval_seconds: int = 0
+
+
+@router.post("/friends/{friend_user_id}/reminders")
+async def create_friend_reminder(friend_user_id: int, body: CreateFriendReminderBody, user_id: UserId) -> dict:
+    if not await is_friend(user_id, friend_user_id):
+        raise HTTPException(status_code=403, detail="not friends")
+    tz_sender = await get_user_zone(user_id)
+    d = _parse_local_date(body.date)
+    t = parse_time_one_line(body.time)
+    if t is None:
+        raise HTTPException(status_code=400, detail="bad time, use 16 43 or 16:43")
+    local_dt = datetime.combine(d, t, tzinfo=tz_sender)
+    fire_at = local_dt.astimezone(timezone.utc)
+    if fire_at <= _utcnow():
+        raise HTTPException(status_code=400, detail="время должно быть в будущем")
+    spam, until_read = _spam_variant_to_db(body.spam_variant, body.spam_interval_seconds)
+
+    async with SessionLocal() as session:
+        rem = Reminder(
+            user_id=friend_user_id,
+            chat_id=friend_user_id,
+            text=body.text.strip(),
+            fire_at=fire_at,
+            spam_interval_seconds=spam,
+            spam_until_read=until_read,
+            active=True,
+        )
+        session.add(rem)
+        await session.flush()
+        fr = FriendReminder(
+            sender_user_id=user_id,
+            receiver_user_id=friend_user_id,
+            reminder_id=rem.id,
+            fire_at_sender_tz=local_dt.strftime("%d.%m.%Y %H:%M"),
+            status="scheduled",
+        )
+        session.add(fr)
+        await session.commit()
+        await session.refresh(rem)
+        await session.refresh(fr)
+    tz_receiver = await get_user_zone(friend_user_id)
+    return {"reminder": _serialize_reminder(rem, tz_receiver), "outbox_item": _serialize_friend_reminder(fr)}
+
+
+@router.get("/friends/reminders/outbox")
+async def friend_reminders_outbox(user_id: UserId, page: int = 0) -> dict:
+    async with SessionLocal() as session:
+        count = await session.scalar(
+            select(func.count()).select_from(FriendReminder).where(FriendReminder.sender_user_id == user_id)
+        )
+        total = int(count or 0)
+        pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+        page = min(max(page, 0), pages - 1)
+        rows = await session.execute(
+            select(FriendReminder)
+            .where(FriendReminder.sender_user_id == user_id)
+            .order_by(FriendReminder.created_at.desc())
+            .offset(page * PAGE_SIZE)
+            .limit(PAGE_SIZE)
+        )
+        items = rows.scalars().all()
+    return {"items": [_serialize_friend_reminder(x) for x in items], "page": page, "pages": pages, "total": total}
 
 
 class WebLoginBody(BaseModel):

@@ -27,6 +27,12 @@ from bot.calendar_kb import (
 )
 from bot.config import MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS, WEBAPP_PUBLIC_URL
 from bot.database import SessionLocal
+from bot.friends_service import (
+    create_friend_request,
+    list_friends,
+    list_incoming_requests,
+    respond_friend_request,
+)
 from bot.keyboards import (
     back_to_menu_row,
     edit_spam_keyboard,
@@ -799,6 +805,102 @@ async def on_hhist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+def _friends_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("➕ Добавить по TG ID", callback_data="fr:add")],
+            [InlineKeyboardButton("📥 Входящие заявки", callback_data="fr:req")],
+            [InlineKeyboardButton("📋 Мои друзья", callback_data="fr:list")],
+            [InlineKeyboardButton("« Назад", callback_data="menu:main")],
+        ]
+    )
+
+
+async def _friends_menu_text(uid: int) -> str:
+    friends = await list_friends(uid)
+    reqs = await list_incoming_requests(uid)
+    return (
+        "Друзья\n\n"
+        f"• Подтверждённых друзей: {len(friends)}\n"
+        f"• Входящих заявок: {len(reqs)}\n\n"
+        "Добавляй друга по Telegram ID."
+    )
+
+
+async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if q is None or q.data is None or update.effective_user is None:
+        return
+    await q.answer()
+    uid = update.effective_user.id
+    data = q.data
+    if data == "fr:add":
+        context.user_data["await_friend_id"] = True
+        await q.edit_message_text(
+            "Отправь Telegram ID друга одним сообщением (только число).",
+            reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
+        )
+        return
+    if data == "fr:list":
+        ids = await list_friends(uid)
+        if not ids:
+            txt = "Пока нет друзей."
+        else:
+            txt = "Мои друзья (TG ID):\n" + "\n".join(f"• {x}" for x in ids[:50])
+        await q.edit_message_text(txt, reply_markup=_friends_menu_kb())
+        return
+    if data == "fr:req":
+        reqs = await list_incoming_requests(uid)
+        if not reqs:
+            await q.edit_message_text("Входящих заявок нет.", reply_markup=_friends_menu_kb())
+            return
+        rows: list[list[InlineKeyboardButton]] = []
+        for r in reqs[:20]:
+            rows.append(
+                [
+                    InlineKeyboardButton(f"Принять {r.from_user_id}", callback_data=f"fr:acc:{r.id}"),
+                    InlineKeyboardButton("Отклонить", callback_data=f"fr:rej:{r.id}"),
+                ]
+            )
+        rows.append([InlineKeyboardButton("« Назад", callback_data="menu:friends")])
+        await q.edit_message_text("Входящие заявки:", reply_markup=InlineKeyboardMarkup(rows))
+        return
+    m_acc = re.fullmatch(r"fr:acc:(\d+)", data)
+    if m_acc:
+        rid = int(m_acc.group(1))
+        try:
+            req = await respond_friend_request(rid, uid, True)
+        except ValueError:
+            await q.edit_message_text("Заявка не найдена.", reply_markup=_friends_menu_kb())
+            return
+        await q.edit_message_text("Заявка принята.", reply_markup=_friends_menu_kb())
+        try:
+            await context.bot.send_message(
+                chat_id=req.from_user_id,
+                text=f"Пользователь {uid} принял вашу заявку в друзья.",
+            )
+        except Exception as e:
+            log.warning("notify requester accepted failed: %s", e)
+        return
+    m_rej = re.fullmatch(r"fr:rej:(\d+)", data)
+    if m_rej:
+        rid = int(m_rej.group(1))
+        try:
+            req = await respond_friend_request(rid, uid, False)
+        except ValueError:
+            await q.edit_message_text("Заявка не найдена.", reply_markup=_friends_menu_kb())
+            return
+        await q.edit_message_text("Заявка отклонена.", reply_markup=_friends_menu_kb())
+        try:
+            await context.bot.send_message(
+                chat_id=req.from_user_id,
+                text=f"Пользователь {uid} отклонил вашу заявку в друзья.",
+            )
+        except Exception as e:
+            log.warning("notify requester rejected failed: %s", e)
+        return
+
+
 async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if q is None or q.data is None or update.effective_user is None:
@@ -809,6 +911,8 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     data = q.data
     if data != "menu:tz":
         context.user_data.pop("await_tz_offset", None)
+    if data != "menu:friends":
+        context.user_data.pop("await_friend_id", None)
     if data == "menu:main":
         await q.edit_message_text("Главное меню", reply_markup=main_menu_keyboard())
         return
@@ -842,6 +946,12 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await q.edit_message_text(
             "Настройки:",
             reply_markup=settings_keyboard(on),
+        )
+        return
+    if data == "menu:friends":
+        await q.edit_message_text(
+            await _friends_menu_text(uid),
+            reply_markup=_friends_menu_kb(),
         )
         return
 
@@ -994,6 +1104,48 @@ async def on_tzo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.user_data.get("await_friend_id"):
+        if update.message is None or not update.message.text or update.effective_user is None:
+            return
+        raw = update.message.text.strip()
+        if not re.fullmatch(r"\d{4,20}", raw):
+            await update.message.reply_text("Нужен Telegram ID числом, например 123456789.")
+            return
+        target = int(raw)
+        uid = update.effective_user.id
+        try:
+            req = await create_friend_request(uid, target)
+        except ValueError as e:
+            code = str(e)
+            if code == "cannot_add_self":
+                await update.message.reply_text("Нельзя добавить самого себя.")
+            elif code == "target_not_found":
+                await update.message.reply_text("Пользователь с таким ID не найден в боте.")
+            elif code == "already_friends":
+                await update.message.reply_text("Вы уже друзья.")
+            else:
+                await update.message.reply_text("Не удалось отправить заявку.")
+            return
+        context.user_data.pop("await_friend_id", None)
+        await update.message.reply_text("Заявка отправлена.", reply_markup=main_menu_keyboard())
+        if req.status == "pending":
+            try:
+                await context.bot.send_message(
+                    chat_id=target,
+                    text=f"Вам пришла заявка в друзья от {uid}.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton("Принять", callback_data=f"fr:acc:{req.id}"),
+                                InlineKeyboardButton("Отклонить", callback_data=f"fr:rej:{req.id}"),
+                            ]
+                        ]
+                    ),
+                )
+            except Exception as e:
+                log.warning("notify target friend request failed: %s", e)
+        return
+
     if not context.user_data.get("await_tz_offset"):
         return
     if update.message is None or not update.message.text or update.effective_user is None:
@@ -1537,7 +1689,7 @@ def register_handlers(app: Application) -> None:
             CallbackQueryHandler(conv_hhist_back, pattern=r"^hhist:\d+$"),
             CallbackQueryHandler(
                 conv_menu_leave,
-                pattern=r"^menu:(list|history|tz|help|main|today|settings)$",
+                pattern=r"^menu:(list|history|tz|help|main|today|settings|friends)$",
             ),
         ],
     )
@@ -1553,9 +1705,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(
         CallbackQueryHandler(
             on_menu_callback,
-            pattern=r"^menu:(list|history|tz|help|main|today|settings)$",
+            pattern=r"^menu:(list|history|tz|help|main|today|settings|friends)$",
         )
     )
+    app.add_handler(CallbackQueryHandler(on_friends_callback, pattern=r"^fr:"))
     app.add_handler(CallbackQueryHandler(on_stq_toggle, pattern=r"^stq:toggle$"))
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("history", cmd_history))

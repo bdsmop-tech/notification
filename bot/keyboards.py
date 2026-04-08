@@ -32,6 +32,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🌐 Часовой пояс", callback_data="menu:tz"),
                 InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings"),
             ],
+            [InlineKeyboardButton("👥 Друзья", callback_data="menu:friends")],
             [InlineKeyboardButton("❓ Помощь", callback_data="menu:help")],
         ]
     )
