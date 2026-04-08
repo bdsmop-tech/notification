@@ -976,12 +976,39 @@ body {
     grid-template-columns: repeat(6, 1fr);
   }
 
-  /* Календарь: фиксированная ширина ячеек — иначе на широком экране сетка раздувается */
+  /* Календарь: одна ширина для шапки и сетки (без пустоты справа и «разъехавшегося» месяца) */
+  .cal.glass-block {
+    --cal-gap: 3px;
+    --cal-cell: 2.35rem;
+    box-sizing: border-box;
+    width: min(100%, calc(7 * var(--cal-cell) + 6 * var(--cal-gap)));
+    margin-left: auto;
+    margin-right: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+
+  .cal .cal__head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    width: 100%;
+    gap: 0.2rem;
+  }
+
+  .cal .cal__head .cal__cap {
+    font-size: 0.76rem;
+    text-align: center;
+    min-width: 0;
+    justify-self: center;
+  }
+
   .cal__grid {
-    grid-template-columns: repeat(7, 2.35rem);
-    width: fit-content;
-    max-width: 100%;
-    gap: 3px;
+    grid-template-columns: repeat(7, var(--cal-cell));
+    width: 100%;
+    gap: var(--cal-gap);
   }
 
   .cal__day {
@@ -990,10 +1017,6 @@ body {
 
   .cal__wd {
     font-size: 0.52rem;
-  }
-
-  .cal__cap {
-    font-size: 0.76rem;
   }
 }
 
@@ -1053,7 +1076,7 @@ body {
     grid-template-columns: repeat(7, 1fr);
   }
 
-  .cal__grid {
-    grid-template-columns: repeat(7, 2.15rem);
+  .cal.glass-block {
+    --cal-cell: 2.15rem;
   }
 }
