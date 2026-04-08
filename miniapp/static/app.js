@@ -1123,8 +1123,76 @@
         tx.className = "input input--area";
         tx.rows = 2;
         tx.placeholder = "Текст";
-        const dIn = el("input", "input");
-        dIn.placeholder = "Дата YYYY-MM-DD";
+        const now = new Date();
+        let friendCalYear = now.getFullYear();
+        let friendCalMonth = now.getMonth() + 1;
+        let friendPickDate =
+          String(friendCalYear) + "-" + String(friendCalMonth).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+        const calBox = el("div", "cal glass-block");
+        const calHead = el("div", "row cal__head");
+        const calPrev = el("button", "btn btn--ghost", "«");
+        const calNext = el("button", "btn btn--ghost", "»");
+        const calCap = el("span", "cal__cap", "");
+        calHead.appendChild(calPrev);
+        calHead.appendChild(calCap);
+        calHead.appendChild(calNext);
+        calBox.appendChild(calHead);
+        const calGrid = el("div", "cal__grid");
+        calBox.appendChild(calGrid);
+        async function paintFriendCal() {
+          const c = await api("/api/calendar/" + friendCalYear + "/" + friendCalMonth);
+          calCap.textContent = c.month_label;
+          calGrid.innerHTML = "";
+          c.weekday_names.forEach(function (n) {
+            calGrid.appendChild(el("div", "cal__wd", n));
+          });
+          c.weeks.forEach(function (week) {
+            week.forEach(function (d) {
+              const cell = el("button", "cal__day");
+              if (d == null) {
+                cell.classList.add("cal__day--muted");
+                cell.disabled = true;
+              } else {
+                const y = friendCalYear;
+                const m = friendCalMonth;
+                const mm = String(m).padStart(2, "0");
+                const dd = String(d).padStart(2, "0");
+                const val = String(y) + "-" + mm + "-" + dd;
+                cell.textContent = String(d);
+                cell.type = "button";
+                if (val === friendPickDate) cell.classList.add("cal__day--pick");
+                cell.addEventListener("click", function () {
+                  friendPickDate = val;
+                  Array.from(calGrid.querySelectorAll(".cal__day--pick")).forEach(function (x) {
+                    x.classList.remove("cal__day--pick");
+                  });
+                  cell.classList.add("cal__day--pick");
+                });
+              }
+              calGrid.appendChild(cell);
+            });
+          });
+        }
+        calPrev.addEventListener("click", function () {
+          friendCalMonth -= 1;
+          if (friendCalMonth < 1) {
+            friendCalMonth = 12;
+            friendCalYear -= 1;
+          }
+          paintFriendCal().catch(function (e) {
+            showErr(String(e.message || e));
+          });
+        });
+        calNext.addEventListener("click", function () {
+          friendCalMonth += 1;
+          if (friendCalMonth > 12) {
+            friendCalMonth = 1;
+            friendCalYear += 1;
+          }
+          paintFriendCal().catch(function (e) {
+            showErr(String(e.message || e));
+          });
+        });
         const tIn = el("input", "input");
         tIn.placeholder = "Время 16:43";
         const spamRg = spamModeRadiogroup("once", function (v) {
@@ -1154,14 +1222,13 @@
               method: "POST",
               body: JSON.stringify({
                 text: tx.value.trim(),
-                date: dIn.value.trim(),
+                date: friendPickDate,
                 time: tIn.value.trim(),
                 spam_variant: spamPick,
                 spam_interval_seconds: spamPick === "custom" ? parseInt(cIn.value, 10) || 0 : 0,
               }),
             });
             tx.value = "";
-            dIn.value = "";
             tIn.value = "";
             render();
           } catch (e) {
@@ -1170,7 +1237,11 @@
         });
         friendsPanel.appendChild(friendSel);
         friendsPanel.appendChild(tx);
-        friendsPanel.appendChild(dIn);
+        friendsPanel.appendChild(el("label", "label label--glass", "Дата"));
+        friendsPanel.appendChild(calBox);
+        paintFriendCal().catch(function (e) {
+          showErr(String(e.message || e));
+        });
         friendsPanel.appendChild(tIn);
         friendsPanel.appendChild(el("label", "label label--glass", "Повтор"));
         friendsPanel.appendChild(spamRg.el);
