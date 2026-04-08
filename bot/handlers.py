@@ -176,23 +176,23 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if update.effective_user:
         await touch_user_settings(update.effective_user.id)
+    if update.effective_user:
+        profile = await get_user_profile_name(update.effective_user.id)
+        if not profile:
+            context.user_data["await_profile_name"] = True
+            await update.message.reply_text("Отправь имя профиля.")
+            return
     tz = await get_user_zone(update.effective_user.id) if update.effective_user else None
     tz_line = f"Пояс: {format_tz_label(tz)}" if tz else ""
     code_line = ""
     if update.effective_user:
         code = await issue_login_code(update.effective_user.id)
         web_link = (WEBAPP_PUBLIC_URL.rstrip("/") + "/web") if WEBAPP_PUBLIC_URL else "/web"
-        profile = await get_user_profile_name(update.effective_user.id)
-        if not profile:
-            context.user_data["await_profile_name"] = True
-            profile_tip = "\n\nСначала укажи имя профиля (как тебя будут видеть друзья). Отправь его одним сообщением."
-        else:
-            profile_tip = ""
         code_line = (
             f"\n\nКод для входа на сайт: {code}\n"
             f"Ссылка для входа: {web_link}\n"
             "Введи этот код на странице (постоянный)."
-        ) + profile_tip
+        )
     await update.message.reply_text(
         "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line + code_line,
         reply_markup=main_menu_keyboard(),
@@ -821,7 +821,7 @@ async def on_hhist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 def _friends_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("➕ Добавить по TG ID", callback_data="fr:add")],
+            [InlineKeyboardButton("➕ Добавить по имени", callback_data="fr:add")],
             [InlineKeyboardButton("📥 Входящие заявки", callback_data="fr:req")],
             [InlineKeyboardButton("📋 Мои друзья", callback_data="fr:list")],
             [InlineKeyboardButton("« Назад", callback_data="menu:main")],
@@ -935,7 +935,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if data != "menu:settings":
         context.user_data.pop("await_profile_name", None)
     if data == "menu:main":
-        await q.edit_message_text("Главное меню", reply_markup=main_menu_keyboard())
+        await q.edit_message_text("Главное меню. Выберите раздел:", reply_markup=main_menu_keyboard())
         return
     if data == "menu:list":
         await _send_active_list(context, chat_id, uid, 0, query=q)
@@ -952,12 +952,15 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     if data == "menu:help":
         await q.edit_message_text(
-            "• Новое — текст и календарь; или одной строкой «текст 16 43» на сегодня.\n"
-            "• Пояс UTC: +3, −4 или кнопки.\n"
-            "• Повтор: один раз, до «Прочитал», или интервал + Стоп.\n"
-            "• В уведомлении: Прочитал, Стоп, отложить (+5 мин / +1 ч / завтра).\n"
-            "• История — кнопка по строке: тот же текст, выбираешь дату и время заново.\n"
-            "• Тихие часы в настройках — не будит ночью (переносит на утро).",
+            "Как пользоваться:\n\n"
+            "• Новое: создай напоминание по шагам.\n"
+            "• Быстрый ввод: одной строкой «текст 16 43» — на сегодня.\n"
+            "• Часовой пояс: в меню «Пояс UTC» (например +3 или -4).\n"
+            "• Повтор: один раз, до «Прочитал», или через интервал.\n"
+            "• В уведомлении: «Прочитал», «Стоп», отложить (+5 мин / +1 ч / завтра).\n"
+            "• История: можно поставить заново по старому тексту.\n"
+            "• Тихие часы: в настройках, чтобы не будило ночью.\n"
+            "• Друзья: добавление по имени профиля, заявки и отправка напоминаний.",
             reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
         )
         return
