@@ -9,9 +9,9 @@
   "description": "Напоминания с синхронизацией через Telegram-бота",
   "icons": [
     {
-      "src": "/app/static/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/app/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

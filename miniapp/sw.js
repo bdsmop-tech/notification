@@ -6,7 +6,7 @@ const URLS = [
   "/manifest.webmanifest",
   "/app/static/style.css?v=15",
   "/app/static/app.js?v=15",
-  "/app/static/icon.svg",
+  "/app/static/icon.png",
 ];
 
 self.addEventListener("install", (event) => {
