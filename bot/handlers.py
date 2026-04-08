@@ -3,7 +3,7 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import nulls_last, select, update
+from sqlalchemy import nulls_last, select, update as sql_update
 from sqlalchemy.sql import func
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import BadRequest
@@ -1172,7 +1172,7 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await context.bot.send_message(chat_id=q.message.chat_id, text="Ошибка.")
             return
         await session.execute(
-            update(Reminder)
+            sql_update(Reminder)
             .where(Reminder.id == rid)
             .values(active=False, closed_at=now)
         )
