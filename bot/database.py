@@ -33,6 +33,11 @@ async def init_db() -> None:
         )
         await conn.execute(
             text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS profile_name VARCHAR(64)"
+            )
+        )
+        await conn.execute(
+            text(
                 "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quiet_start_hour INTEGER NOT NULL DEFAULT 23"
             )
         )

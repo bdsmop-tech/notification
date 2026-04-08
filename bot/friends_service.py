@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import or_, select
 
 from bot.database import SessionLocal
-from bot.models import FriendRequest, Friendship, Reminder, UserSettings
+from bot.models import FriendRequest, Friendship, UserSettings
 
 
 def _utcnow() -> datetime:
@@ -19,10 +19,7 @@ def friend_pair(a: int, b: int) -> tuple[int, int]:
 async def user_exists(user_id: int) -> bool:
     async with SessionLocal() as session:
         us = await session.scalar(select(UserSettings.user_id).where(UserSettings.user_id == user_id).limit(1))
-        if us is not None:
-            return True
-        rm = await session.scalar(select(Reminder.user_id).where(Reminder.user_id == user_id).limit(1))
-        return rm is not None
+        return us is not None
 
 
 async def is_friend(user_a: int, user_b: int) -> bool:
@@ -48,6 +45,14 @@ async def list_friends(user_id: int) -> list[int]:
         return out
 
 
+async def resolve_profile_name(user_id: int) -> str:
+    async with SessionLocal() as session:
+        row = await session.get(UserSettings, user_id)
+        if row is not None and row.profile_name and row.profile_name.strip():
+            return row.profile_name.strip()
+    return f"Пользователь {str(user_id)[-4:]}"
+
+
 async def list_incoming_requests(user_id: int) -> list[FriendRequest]:
     async with SessionLocal() as session:
         rows = await session.execute(
@@ -62,7 +67,7 @@ async def create_friend_request(from_user_id: int, to_user_id: int) -> FriendReq
     if from_user_id == to_user_id:
         raise ValueError("cannot_add_self")
     if not await user_exists(to_user_id):
-        raise ValueError("target_not_found")
+        raise ValueError("target_not_activated")
     if await is_friend(from_user_id, to_user_id):
         raise ValueError("already_friends")
 

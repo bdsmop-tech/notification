@@ -18,6 +18,7 @@ from bot.friends_service import (
     is_friend,
     list_friends,
     list_incoming_requests,
+    resolve_profile_name,
     respond_friend_request,
 )
 from bot.models import FriendReminder, Reminder
@@ -26,8 +27,10 @@ from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.tma_validate import validate_telegram_init_data
 from bot.user_prefs import (
     format_tz_label,
+    get_user_profile_name,
     get_user_settings_row,
     get_user_zone,
+    set_user_profile_name,
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
@@ -176,6 +179,7 @@ async def api_me(user_id: UserId) -> dict:
     return {
         "user_id": user_id,
         "tz_label": format_tz_label(tz),
+        "profile_name": (row.profile_name if row and row.profile_name else None),
         "offset_hours": off,
         "quiet_hours_enabled": bool(row and row.quiet_hours_enabled),
         "min_spam_interval_seconds": MIN_SPAM_INTERVAL_SECONDS,
@@ -194,6 +198,19 @@ async def api_set_timezone(body: TimezoneBody, user_id: UserId) -> dict:
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid offset") from None
     return {"tz_label": format_tz_label(tz), "offset_hours": body.offset_hours}
+
+
+class ProfileNameBody(BaseModel):
+    profile_name: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/me/profile-name")
+async def api_set_profile_name(body: ProfileNameBody, user_id: UserId) -> dict:
+    try:
+        name = await set_user_profile_name(user_id, body.profile_name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid profile_name") from None
+    return {"profile_name": name}
 
 
 @router.post("/me/quiet-hours/toggle")
@@ -500,13 +517,21 @@ class CreateFriendRequestBody(BaseModel):
 @router.get("/friends")
 async def friends_list(user_id: UserId) -> dict:
     ids = await list_friends(user_id)
-    return {"friends": [{"user_id": x} for x in ids]}
+    out = []
+    for x in ids:
+        out.append({"user_id": x, "display_name": await resolve_profile_name(x)})
+    return {"friends": out}
 
 
 @router.get("/friends/requests/incoming")
 async def friends_requests_incoming(user_id: UserId) -> dict:
     rows = await list_incoming_requests(user_id)
-    return {"requests": [_serialize_friend_request(x) for x in rows]}
+    out = []
+    for x in rows:
+        item = _serialize_friend_request(x)
+        item["from_display_name"] = await resolve_profile_name(x.from_user_id)
+        out.append(item)
+    return {"requests": out}
 
 
 @router.post("/friends/requests")
@@ -517,8 +542,8 @@ async def friends_request_create(body: CreateFriendRequestBody, user_id: UserId)
         code = str(e)
         if code == "cannot_add_self":
             raise HTTPException(status_code=400, detail="cannot add self") from None
-        if code == "target_not_found":
-            raise HTTPException(status_code=404, detail="target user not found") from None
+        if code == "target_not_activated":
+            raise HTTPException(status_code=404, detail="Пользователь ещё не активировал бота. Попросите его сначала зайти в бот.") from None
         if code == "already_friends":
             raise HTTPException(status_code=400, detail="already friends") from None
         raise HTTPException(status_code=400, detail=code) from None
@@ -610,7 +635,12 @@ async def friend_reminders_outbox(user_id: UserId, page: int = 0) -> dict:
             .limit(PAGE_SIZE)
         )
         items = rows.scalars().all()
-    return {"items": [_serialize_friend_reminder(x) for x in items], "page": page, "pages": pages, "total": total}
+    out = []
+    for x in items:
+        item = _serialize_friend_reminder(x)
+        item["receiver_display_name"] = await resolve_profile_name(x.receiver_user_id)
+        out.append(item)
+    return {"items": out, "page": page, "pages": pages, "total": total}
 
 
 class WebLoginBody(BaseModel):

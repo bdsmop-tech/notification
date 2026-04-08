@@ -31,6 +31,7 @@ from bot.friends_service import (
     create_friend_request,
     list_friends,
     list_incoming_requests,
+    resolve_profile_name,
     respond_friend_request,
 )
 from bot.keyboards import (
@@ -46,9 +47,12 @@ from bot.reminder_worker import stop_reminder_by_id
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.user_prefs import (
     format_tz_label,
+    get_user_profile_name,
     get_user_settings_row,
     get_user_zone,
+    set_user_profile_name,
     set_user_timezone_offset_hours,
+    touch_user_settings,
     toggle_quiet_hours,
 )
 from bot.web_auth import issue_login_code
@@ -169,17 +173,25 @@ def _spam_label(r: Reminder) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
+    if update.effective_user:
+        await touch_user_settings(update.effective_user.id)
     tz = await get_user_zone(update.effective_user.id) if update.effective_user else None
     tz_line = f"Пояс: {format_tz_label(tz)}" if tz else ""
     code_line = ""
     if update.effective_user:
         code = await issue_login_code(update.effective_user.id)
         web_link = (WEBAPP_PUBLIC_URL.rstrip("/") + "/web") if WEBAPP_PUBLIC_URL else "/web"
+        profile = await get_user_profile_name(update.effective_user.id)
+        if not profile:
+            context.user_data["await_profile_name"] = True
+            profile_tip = "\n\nСначала укажи имя профиля (как тебя будут видеть друзья). Отправь его одним сообщением."
+        else:
+            profile_tip = ""
         code_line = (
             f"\n\nКод для входа на сайт: {code}\n"
             f"Ссылка для входа: {web_link}\n"
             "Введи этот код на странице (постоянный)."
-        )
+        ) + profile_tip
     await update.message.reply_text(
         "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line + code_line,
         reply_markup=main_menu_keyboard(),
@@ -846,7 +858,10 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not ids:
             txt = "Пока нет друзей."
         else:
-            txt = "Мои друзья (TG ID):\n" + "\n".join(f"• {x}" for x in ids[:50])
+            names = []
+            for x in ids[:50]:
+                names.append("• " + await resolve_profile_name(x))
+            txt = "Мои друзья:\n" + "\n".join(names)
         await q.edit_message_text(txt, reply_markup=_friends_menu_kb())
         return
     if data == "fr:req":
@@ -856,9 +871,10 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         rows: list[list[InlineKeyboardButton]] = []
         for r in reqs[:20]:
+            from_name = await resolve_profile_name(r.from_user_id)
             rows.append(
                 [
-                    InlineKeyboardButton(f"Принять {r.from_user_id}", callback_data=f"fr:acc:{r.id}"),
+                    InlineKeyboardButton(f"Принять {from_name}", callback_data=f"fr:acc:{r.id}"),
                     InlineKeyboardButton("Отклонить", callback_data=f"fr:rej:{r.id}"),
                 ]
             )
@@ -875,9 +891,10 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         await q.edit_message_text("Заявка принята.", reply_markup=_friends_menu_kb())
         try:
+            to_name = await resolve_profile_name(uid)
             await context.bot.send_message(
                 chat_id=req.from_user_id,
-                text=f"Пользователь {uid} принял вашу заявку в друзья.",
+                text=f"{to_name} принял(а) вашу заявку в друзья.",
             )
         except Exception as e:
             log.warning("notify requester accepted failed: %s", e)
@@ -892,9 +909,10 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         await q.edit_message_text("Заявка отклонена.", reply_markup=_friends_menu_kb())
         try:
+            to_name = await resolve_profile_name(uid)
             await context.bot.send_message(
                 chat_id=req.from_user_id,
-                text=f"Пользователь {uid} отклонил вашу заявку в друзья.",
+                text=f"{to_name} отклонил(а) вашу заявку в друзья.",
             )
         except Exception as e:
             log.warning("notify requester rejected failed: %s", e)
@@ -913,6 +931,8 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         context.user_data.pop("await_tz_offset", None)
     if data != "menu:friends":
         context.user_data.pop("await_friend_id", None)
+    if data != "menu:settings":
+        context.user_data.pop("await_profile_name", None)
     if data == "menu:main":
         await q.edit_message_text("Главное меню", reply_markup=main_menu_keyboard())
         return
@@ -1104,6 +1124,22 @@ async def on_tzo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.user_data.get("await_profile_name"):
+        if update.message is None or not update.message.text or update.effective_user is None:
+            return
+        name = update.message.text.strip()
+        if len(name) < 2:
+            await update.message.reply_text("Имя слишком короткое. Введите минимум 2 символа.")
+            return
+        try:
+            saved = await set_user_profile_name(update.effective_user.id, name)
+        except ValueError:
+            await update.message.reply_text("Не удалось сохранить имя профиля.")
+            return
+        context.user_data.pop("await_profile_name", None)
+        await update.message.reply_text(f"Имя профиля сохранено: {saved}", reply_markup=main_menu_keyboard())
+        return
+
     if context.user_data.get("await_friend_id"):
         if update.message is None or not update.message.text or update.effective_user is None:
             return
@@ -1119,8 +1155,11 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             code = str(e)
             if code == "cannot_add_self":
                 await update.message.reply_text("Нельзя добавить самого себя.")
-            elif code == "target_not_found":
-                await update.message.reply_text("Пользователь с таким ID не найден в боте.")
+            elif code == "target_not_activated":
+                await update.message.reply_text(
+                    "Этому пользователю пока нельзя отправить приглашение: он ещё не активировал бота. "
+                    "Попросите его сначала зайти в бота и нажать /start."
+                )
             elif code == "already_friends":
                 await update.message.reply_text("Вы уже друзья.")
             else:
@@ -1130,9 +1169,10 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("Заявка отправлена.", reply_markup=main_menu_keyboard())
         if req.status == "pending":
             try:
+                from_name = await resolve_profile_name(uid)
                 await context.bot.send_message(
                     chat_id=target,
-                    text=f"Вам пришла заявка в друзья от {uid}.",
+                    text=f"Вам пришла заявка в друзья от «{from_name}».",
                     reply_markup=InlineKeyboardMarkup(
                         [
                             [

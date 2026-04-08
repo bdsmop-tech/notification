@@ -899,6 +899,29 @@
         ),
       );
 
+      const pPanel = el("div", "panel");
+      pPanel.appendChild(el("p", "label label--glass", "Имя профиля для друзей"));
+      const pIn = el("input", "input");
+      pIn.value = me.profile_name || "";
+      pIn.placeholder = "Например: Андрей";
+      pPanel.appendChild(pIn);
+      const pBtn = el("button", "btn", "Сохранить имя");
+      pBtn.type = "button";
+      pBtn.addEventListener("click", async function () {
+        try {
+          const r = await api("/api/me/profile-name", {
+            method: "POST",
+            body: JSON.stringify({ profile_name: pIn.value.trim() }),
+          });
+          me.profile_name = r.profile_name;
+          showErr("");
+        } catch (e) {
+          showErr(String(e.message || e));
+        }
+      });
+      pPanel.appendChild(pBtn);
+      box.appendChild(pPanel);
+
       const help = el("button", "btn btn--ghost", "Справка");
       help.type = "button";
       help.addEventListener("click", function () {
@@ -952,7 +975,7 @@
       } else {
         req.requests.forEach(function (r) {
           const row = el("div", "row row--wrap");
-          row.appendChild(el("span", "hint", "От пользователя " + r.from_user_id));
+          row.appendChild(el("span", "hint", "От: " + (r.from_display_name || "Пользователь")));
           const ok = el("button", "btn btn--small", "Принять");
           ok.type = "button";
           ok.addEventListener("click", async function () {
@@ -995,7 +1018,7 @@
         fr.friends.forEach(function (x) {
           const o = document.createElement("option");
           o.value = String(x.user_id);
-          o.textContent = "ID " + x.user_id;
+          o.textContent = x.display_name || "Пользователь";
           friendSel.appendChild(o);
         });
         const tx = document.createElement("textarea");
@@ -1051,7 +1074,14 @@
             el(
               "p",
               "hint",
-              "#" + x.id + " -> " + x.receiver_user_id + " | " + x.fire_at_sender_tz + " | " + x.status,
+              "#" +
+                x.id +
+                " -> " +
+                (x.receiver_display_name || "Пользователь") +
+                " | " +
+                x.fire_at_sender_tz +
+                " | " +
+                x.status,
             ),
           );
         });
