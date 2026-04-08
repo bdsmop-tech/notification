@@ -36,7 +36,7 @@ from bot.user_prefs import (
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
-from bot.web_auth import exchange_code_for_session, revoke_session, user_id_from_session
+from bot.web_auth import revoke_session, user_id_from_login_code, user_id_from_session
 
 PAGE_SIZE = 5
 
@@ -47,7 +47,11 @@ def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-async def require_user(request: Request, authorization: str | None = Header(None)) -> int:
+async def require_user(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_code: str | None = Header(None, alias="X-User-Code"),
+) -> int:
     # Telegram Mini App
     if authorization and authorization.startswith("tma "):
         raw = authorization[4:].strip()
@@ -59,14 +63,19 @@ async def require_user(request: Request, authorization: str | None = Header(None
         except (KeyError, TypeError, ValueError):
             raise HTTPException(status_code=401, detail="Invalid user in initData") from None
 
-    # Web/PWA cookie session
+    # Web/PWA: постоянный код из бота (таблица login_codes)
+    if x_user_code and x_user_code.strip():
+        uid = await user_id_from_login_code(x_user_code)
+        if uid:
+            return uid
+
+    # Старые клиенты: cookie / заголовок sid (WebSession)
     sid = request.cookies.get("sid")
     if sid:
         uid = await user_id_from_session(sid)
         if uid:
             return uid
 
-    # Web/PWA header session fallback (for WebView/PWA where cookies can be unstable)
     if authorization and authorization.startswith("sid "):
         raw_sid = authorization[4:].strip()
         if raw_sid:
@@ -672,26 +681,14 @@ class WebLoginBody(BaseModel):
 
 
 @router.post("/web/login")
-async def web_login(body: WebLoginBody, request: Request, response: Response) -> dict:
-    session_days = 3650
-    ex = await exchange_code_for_session(body.code, session_days=session_days)
-    if not ex:
+async def web_login(body: WebLoginBody, response: Response) -> dict:
+    """Проверяет код; клиент хранит его в localStorage и шлёт в X-User-Code на каждый запрос."""
+    uid = await user_id_from_login_code(body.code)
+    if not uid:
         raise HTTPException(status_code=401, detail="bad code")
-    raw_token, _uid = ex
-    max_age = session_days * 24 * 60 * 60
-    secure_cookie = request.url.scheme == "https"
-    expires_at = _utcnow() + timedelta(seconds=max_age)
-    response.set_cookie(
-        "sid",
-        raw_token,
-        httponly=True,
-        secure=secure_cookie,
-        samesite="lax",
-        max_age=max_age,
-        expires=expires_at,
-        path="/",
-    )
-    return {"ok": True, "sid": raw_token, "expires_at": expires_at.isoformat()}
+    # Убрать старую cookie-сессию, чтобы не путать со схемой по коду
+    response.delete_cookie("sid", path="/")
+    return {"ok": True}
 
 
 @router.post("/web/logout")

@@ -79,6 +79,23 @@ async def exchange_code_for_session(code: str, *, session_days: int = 30) -> tup
         return raw, row.user_id
 
 
+async def user_id_from_login_code(code: str) -> int | None:
+    """Постоянный код из бота: валидная строка в login_codes → user_id."""
+    now = _utcnow()
+    raw = (code or "").strip()
+    if not raw:
+        return None
+    async with SessionLocal() as session:
+        uid = await session.scalar(
+            select(LoginCode.user_id).where(
+                LoginCode.code == raw,
+                LoginCode.consumed_at.is_(None),
+                LoginCode.expires_at > now,
+            )
+        )
+        return int(uid) if uid is not None else None
+
+
 async def user_id_from_session(raw_token: str) -> int | None:
     now = _utcnow()
     if not raw_token:

@@ -1,12 +1,12 @@
 (function () {
-  /* После входа на /web редирект на /#sid=… — на iOS у Safari и PWA разный localStorage; хэш доставляет токен в то же окно. */
+  /* После входа на /web редирект на /#user_code=… — на iOS у Safari и PWA разный localStorage; хэш доставляет код в то же окно. */
   try {
     var hash = window.location.hash || "";
-    if (hash && hash.indexOf("sid=") >= 0) {
-      var m = hash.match(/[#&]sid=([^&]+)/);
+    if (hash && hash.indexOf("user_code=") >= 0) {
+      var m = hash.match(/[#&]user_code=([^&]+)/);
       if (m && m[1]) {
-        var sidFromHash = decodeURIComponent(m[1]);
-        if (sidFromHash) localStorage.setItem("sid", sidFromHash);
+        var codeFromHash = decodeURIComponent(m[1]);
+        if (codeFromHash) localStorage.setItem("user_code", codeFromHash);
       }
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
@@ -69,8 +69,8 @@
     if (d) h.Authorization = "tma " + d;
     if (!d) {
       try {
-        const sid = localStorage.getItem("sid") || "";
-        if (sid) h.Authorization = "sid " + sid;
+        const code = (localStorage.getItem("user_code") || "").trim();
+        if (code) h["X-User-Code"] = code;
       } catch (_) {}
     }
     if (json) h["Content-Type"] = "application/json";
@@ -107,6 +107,7 @@
     const r = await fetch(path, init);
     if (r.status === 401) {
       try {
+        localStorage.removeItem("user_code");
         localStorage.removeItem("sid");
       } catch (_) {}
     }
@@ -207,8 +208,13 @@
       tzLine.textContent = "";
       if (!tg || !tg.initData) {
         showErr(
-          "Вход не выполнен или сессия истекла. Откройте страницу входа и введите код из бота: /web",
+          "Вход не выполнен или код недействителен. Откройте /web и введите код из бота.",
         );
+        try {
+          if (!(localStorage.getItem("user_code") || "").trim()) {
+            window.location.href = "/web";
+          }
+        } catch (_) {}
       }
     }
   }

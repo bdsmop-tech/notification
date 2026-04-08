@@ -48,14 +48,12 @@
         try { j = t ? JSON.parse(t) : null; } catch (_) {}
         if (!r.ok) throw new Error((j && (j.detail || j.error)) || ("Ошибка " + r.status));
         try {
-          if (j && j.sid) localStorage.setItem("sid", j.sid);
+          localStorage.setItem("user_code", code);
         } catch (_) {}
         msgEl.textContent = "Готово. Открываем приложение…";
         window.setTimeout(function () {
-          /* #sid= нужен для PWA на iOS: отдельное хранилище от вкладки Safari — токен подхватит app.js */
-          var u = "/";
-          if (j && j.sid) u = "/#sid=" + encodeURIComponent(j.sid);
-          window.location.href = u;
+          /* #user_code= нужен для PWA на iOS: отдельное хранилище — app.js подхватит код из хэша */
+          window.location.href = "/#user_code=" + encodeURIComponent(code);
         }, 500);
       } catch (e) {
         msgEl.textContent = String(e.message || e);
