@@ -48,13 +48,16 @@
         let j = null;
         try { j = t ? JSON.parse(t) : null; } catch (_) {}
         if (!r.ok) throw new Error((j && (j.detail || j.error)) || ("Ошибка " + r.status));
+        const token = j && j.token ? String(j.token) : "";
+        if (!token) throw new Error("Нет токена сессии");
         try {
-          localStorage.setItem("user_code", code);
+          localStorage.setItem("web_token", token);
+          localStorage.removeItem("user_code");
         } catch (_) {}
         msgEl.textContent = "Готово. Открываем приложение…";
         window.setTimeout(function () {
-          /* #user_code= нужен для PWA на iOS: отдельное хранилище — app.js подхватит код из хэша */
-          window.location.href = "/#user_code=" + encodeURIComponent(code);
+          /* #web_token= — для iOS PWA отдельное хранилище; app.js подхватит из хэша */
+          window.location.href = "/#web_token=" + encodeURIComponent(token);
         }, 500);
       } catch (e) {
         msgEl.textContent = String(e.message || e);

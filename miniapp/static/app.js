@@ -1,8 +1,15 @@
 (function () {
-  /* После входа на /web редирект на /#user_code=… — на iOS у Safari и PWA разный localStorage; хэш доставляет код в то же окно. */
+  /* После входа на /web редирект на /#web_token=… или /#user_code=… — на iOS у Safari и PWA разный localStorage; хэш доставляет в то же окно. */
   try {
     var hash = window.location.hash || "";
-    if (hash && hash.indexOf("user_code=") >= 0) {
+    if (hash && hash.indexOf("web_token=") >= 0) {
+      var mt = hash.match(/[#&]web_token=([^&]+)/);
+      if (mt && mt[1]) {
+        var tokFromHash = decodeURIComponent(mt[1]);
+        if (tokFromHash) localStorage.setItem("web_token", tokFromHash);
+      }
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    } else if (hash && hash.indexOf("user_code=") >= 0) {
       var m = hash.match(/[#&]user_code=([^&]+)/);
       if (m && m[1]) {
         var codeFromHash = decodeURIComponent(m[1]);
@@ -69,11 +76,15 @@
     if (d) h.Authorization = "tma " + d;
     if (!d) {
       try {
-        const code = (localStorage.getItem("user_code") || "").trim();
-        if (code) {
-          h["X-User-Code"] = code;
-          /* Прокси часто режут X-*; Authorization почти всегда пробрасывается */
-          h.Authorization = "LoginCode " + code;
+        const tok = (localStorage.getItem("web_token") || "").trim();
+        if (tok) {
+          h.Authorization = "Bearer " + tok;
+        } else {
+          const code = (localStorage.getItem("user_code") || "").trim();
+          if (code) {
+            h["X-User-Code"] = code;
+            h.Authorization = "LoginCode " + code;
+          }
         }
       } catch (_) {}
     }
@@ -110,14 +121,21 @@
     }
     const r = await fetch(path, init);
     if (r.status === 401) {
+      var tok401 = null;
       try {
+        tok401 = localStorage.getItem("web_token");
+        localStorage.removeItem("web_token");
         localStorage.removeItem("user_code");
         localStorage.removeItem("sid");
       } catch (_) {}
-      /* HttpOnly cookie user_code с сервера — только через logout */
-      fetch("/api/web/logout", { method: "POST", credentials: "same-origin", body: "{}" }).catch(
-        function () {},
-      );
+      var logoutHdr = { "Content-Type": "application/json" };
+      if (tok401 && String(tok401).trim()) logoutHdr.Authorization = "Bearer " + String(tok401).trim();
+      fetch("/api/web/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: logoutHdr,
+        body: "{}",
+      }).catch(function () {});
     }
     const text = await r.text();
     let payload = null;
@@ -219,7 +237,10 @@
           "Вход не выполнен или код недействителен. Откройте /web и введите код из бота.",
         );
         try {
-          if (!(localStorage.getItem("user_code") || "").trim()) {
+          if (
+            !(localStorage.getItem("web_token") || "").trim() &&
+            !(localStorage.getItem("user_code") || "").trim()
+          ) {
             window.location.href = "/web";
           }
         } catch (_) {}

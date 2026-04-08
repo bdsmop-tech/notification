@@ -36,7 +36,12 @@ from bot.user_prefs import (
     set_user_timezone_offset_hours,
     toggle_quiet_hours,
 )
-from bot.web_auth import revoke_session, user_id_from_login_code, user_id_from_session
+from bot.web_auth import (
+    exchange_code_for_session,
+    revoke_session,
+    user_id_from_login_code,
+    user_id_from_session,
+)
 
 PAGE_SIZE = 5
 
@@ -45,6 +50,14 @@ router = APIRouter(prefix="/api", tags=["miniapp"])
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _forwarded_https(request: Request) -> bool:
+    """За reverse-proxy HTTPS часто только в X-Forwarded-Proto — иначе Secure-cookie не ставится."""
+    if request.url.scheme == "https":
+        return True
+    xf = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return xf == "https"
 
 
 async def require_user(
@@ -62,6 +75,16 @@ async def require_user(
             return int(data["user"]["id"])
         except (KeyError, TypeError, ValueError):
             raise HTTPException(status_code=401, detail="Invalid user in initData") from None
+
+    # Web/PWA: session token (основной способ — Bearer не режут прокси)
+    if authorization:
+        auth_stripped = authorization.strip()
+        if auth_stripped.lower().startswith("bearer "):
+            raw_tok = auth_stripped[7:].strip()
+            if raw_tok:
+                uid = await user_id_from_session(raw_tok)
+                if uid:
+                    return uid
 
     # Web/PWA: cookie (надёжнее, чем кастомные заголовки за прокси)
     cookie_code = request.cookies.get("user_code")
@@ -694,18 +717,19 @@ class WebLoginBody(BaseModel):
 
 @router.post("/web/login")
 async def web_login(body: WebLoginBody, request: Request, response: Response) -> dict:
-    """Проверяет код; ставит HttpOnly cookie user_code (и клиент дублирует в localStorage)."""
-    uid = await user_id_from_login_code(body.code)
-    if not uid:
+    """Код из бота → долгоживущая сессия WebSession (token в JSON + cookie sid)."""
+    session_days = 3650
+    ex = await exchange_code_for_session(body.code, session_days=session_days)
+    if not ex:
         raise HTTPException(status_code=401, detail="bad code")
-    response.delete_cookie("sid", path="/")
-    code = body.code.strip()
-    max_age = 10 * 365 * 24 * 60 * 60
-    secure_cookie = request.url.scheme == "https"
+    raw_token, _uid = ex
+    max_age = session_days * 24 * 60 * 60
+    secure_cookie = _forwarded_https(request)
     expires_at = _utcnow() + timedelta(seconds=max_age)
+    response.delete_cookie("user_code", path="/")
     response.set_cookie(
-        "user_code",
-        code,
+        "sid",
+        raw_token,
         httponly=True,
         secure=secure_cookie,
         samesite="lax",
@@ -713,14 +737,16 @@ async def web_login(body: WebLoginBody, request: Request, response: Response) ->
         expires=expires_at,
         path="/",
     )
-    return {"ok": True}
+    return {"ok": True, "token": raw_token, "expires_at": expires_at.isoformat()}
 
 
 @router.post("/web/logout")
-async def web_logout(request: Request, response: Response) -> dict:
+async def web_logout(request: Request, response: Response, authorization: str | None = Header(None)) -> dict:
     sid = request.cookies.get("sid")
     if sid:
         await revoke_session(sid)
+    if authorization and authorization.strip().lower().startswith("bearer "):
+        await revoke_session(authorization.strip()[7:].strip())
     response.delete_cookie("sid", path="/")
     response.delete_cookie("user_code", path="/")
     return {"ok": True}
