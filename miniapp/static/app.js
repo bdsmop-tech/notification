@@ -161,6 +161,7 @@
         return b.getAttribute("data-view") === state.view;
       });
       navPill.style.setProperty("--pill-index", String(idx >= 0 ? idx : 0));
+      navPill.style.setProperty("--pill-visible", idx >= 0 ? "1" : "0");
     }
     const on = tabs.querySelector(".tab--on");
     if (

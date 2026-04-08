@@ -25,7 +25,7 @@ from bot.calendar_kb import (
     month_from_nav,
     parse_calendar_callback,
 )
-from bot.config import MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS
+from bot.config import MIN_SPAM_INTERVAL_SECONDS, READ_ACK_INTERVAL_SECONDS, WEBAPP_PUBLIC_URL
 from bot.database import SessionLocal
 from bot.keyboards import (
     back_to_menu_row,
@@ -168,7 +168,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     code_line = ""
     if update.effective_user:
         code = await issue_login_code(update.effective_user.id)
-        code_line = f"\n\nКод для входа на сайт: {code}\nОткрой сайт `/web` и введи этот код (постоянный)."
+        web_link = (WEBAPP_PUBLIC_URL.rstrip("/") + "/web") if WEBAPP_PUBLIC_URL else "/web"
+        code_line = (
+            f"\n\nКод для входа на сайт: {code}\n"
+            f"Ссылка для входа: {web_link}\n"
+            "Введи этот код на странице (постоянный)."
+        )
     await update.message.reply_text(
         "Напоминалка: кнопки или одна строка «текст 16 43» (на сегодня).\n" + tz_line + code_line,
         reply_markup=main_menu_keyboard(),

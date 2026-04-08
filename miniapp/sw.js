@@ -1,4 +1,4 @@
-const CACHE_NAME = "reminder-pwa-v2";
+const CACHE_NAME = "reminder-pwa-v3";
 const URLS = [
   "/",
   "/web",
@@ -6,7 +6,7 @@ const URLS = [
   "/manifest.webmanifest",
   "/app/static/style.css?v=15",
   "/app/static/app.js?v=15",
-  "/app/static/icon.png",
+  "/app/static/icon.png?v=2",
 ];
 
 self.addEventListener("install", (event) => {
