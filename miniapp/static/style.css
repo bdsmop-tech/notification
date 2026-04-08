@@ -861,25 +861,29 @@ body {
   display: none;
 }
 
-/* --- ПК / планшет: боковая навигация, шире контент --- */
-@media (min-width: 1024px) {
+/* --- Планшет и ПК: боковая навигация (база с 768px) --- */
+@media (min-width: 768px) {
   .app {
     flex-direction: row;
     align-items: stretch;
-    max-width: 1200px;
+    max-width: 960px;
     margin: 0 auto;
-    padding: 0 1.25rem;
+    padding: 0 1rem;
     gap: 0;
   }
 
   .app__stack {
     flex: 1;
     min-width: 0;
-    padding-top: 0.5rem;
+    padding-top: 0.45rem;
   }
 
   .hdr {
-    margin-top: 0.25rem;
+    margin-top: 0.2rem;
+  }
+
+  .title {
+    font-size: 1.12rem;
   }
 
   .main {
@@ -889,9 +893,9 @@ body {
 
   .app-rail {
     order: -1;
-    width: 280px;
+    width: 220px;
     flex-shrink: 0;
-    padding: 1rem 0.75rem 1rem 0;
+    padding: 0.85rem 0.5rem 0.85rem 0;
     pointer-events: auto;
   }
 
@@ -899,8 +903,8 @@ body {
     flex-direction: column;
     max-width: none;
     align-items: stretch;
-    gap: 0.75rem;
-    min-height: min(100vh - 2rem, 900px);
+    gap: 0.6rem;
+    min-height: min(100vh - 1.5rem, 880px);
     justify-content: flex-start;
   }
 
@@ -908,9 +912,9 @@ body {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
-    gap: 0.35rem;
-    padding: 10px;
-    border-radius: 20px;
+    gap: 0.3rem;
+    padding: 8px;
+    border-radius: 18px;
     flex: 1;
     min-height: 0;
   }
@@ -924,16 +928,16 @@ body {
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
-    gap: 0.65rem;
-    padding: 0.65rem 0.9rem;
-    border-radius: 14px;
-    font-size: 0.92rem;
+    gap: 0.55rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 13px;
+    font-size: 0.86rem;
     width: 100%;
     min-width: 0;
   }
 
   .tab--item .tab__label {
-    font-size: 0.92rem;
+    font-size: 0.86rem;
     font-weight: 600;
     letter-spacing: 0;
   }
@@ -953,19 +957,76 @@ body {
     width: 100%;
     height: auto;
     min-height: 0;
-    border-radius: 16px;
-    padding: 0.75rem 1rem;
+    border-radius: 15px;
+    padding: 0.65rem 0.85rem;
     flex-direction: row;
-    gap: 0.5rem;
+    gap: 0.45rem;
     justify-content: center;
   }
 
   .tab__fab-label {
     display: inline;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     font-weight: 700;
     color: inherit;
     letter-spacing: -0.02em;
+  }
+
+  .tzgrid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* --- ПК: шире колонка и сайдбар --- */
+@media (min-width: 1024px) {
+  .app {
+    max-width: 1200px;
+    padding: 0 1.25rem;
+  }
+
+  .app__stack {
+    padding-top: 0.5rem;
+  }
+
+  .title {
+    font-size: 1.18rem;
+  }
+
+  .app-rail {
+    width: 280px;
+    padding: 1rem 0.75rem 1rem 0;
+  }
+
+  .app-rail__inner {
+    gap: 0.75rem;
+    min-height: min(100vh - 2rem, 900px);
+  }
+
+  .nav-pill {
+    gap: 0.35rem;
+    padding: 10px;
+    border-radius: 20px;
+  }
+
+  .tab--item {
+    gap: 0.65rem;
+    padding: 0.65rem 0.9rem;
+    border-radius: 14px;
+    font-size: 0.92rem;
+  }
+
+  .tab--item .tab__label {
+    font-size: 0.92rem;
+  }
+
+  .tab--fab {
+    border-radius: 16px;
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
+  .tab__fab-label {
+    font-size: 0.95rem;
   }
 
   .tzgrid {
