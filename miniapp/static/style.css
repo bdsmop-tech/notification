@@ -976,49 +976,50 @@ body {
     grid-template-columns: repeat(6, 1fr);
   }
 
-  /* Подпись «Дата» и календарь — вместе по центру (на телефоне подпись слева) */
+  /*
+    Дата: как у остальных полей — на всю ширину формы; календарь внутри карточки
+    слева (не «остров» по центру между полноширинными input).
+  */
   .cal-field {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     gap: 0.35rem;
     width: 100%;
   }
 
   .cal-field > .label {
-    align-self: stretch;
-    text-align: center;
     margin: 0;
+    text-align: left;
   }
 
-  /*
-    Ширина border-box должна включать padding и рамку .glass-block, иначе
-    сетка шире контента → обрезание справа (main__sheet overflow-x: hidden).
-  */
   .cal.glass-block {
-    --cal-gap: 3px;
+    --cal-gap: 4px;
     --cal-cell: 2.2rem;
-    --cal-pad-x: 0.55rem;
+    --cal-grid-w: calc(7 * var(--cal-cell) + 6 * var(--cal-gap));
     box-sizing: border-box;
-    width: min(
-      100%,
-      calc(7 * var(--cal-cell) + 6 * var(--cal-gap) + 2 * var(--cal-pad-x) + 2px)
-    );
-    margin-left: auto;
-    margin-right: auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
     display: flex;
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 0.3rem;
     padding-top: 0.4rem;
     padding-bottom: 0.35rem;
+  }
+
+  .cal.glass-block > .cal__head,
+  .cal.glass-block > .cal__grid {
+    width: min(100%, var(--cal-grid-w));
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .cal .cal__head {
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
-    width: 100%;
     gap: 0.2rem;
   }
 
@@ -1031,7 +1032,6 @@ body {
 
   .cal__grid {
     grid-template-columns: repeat(7, var(--cal-cell));
-    width: 100%;
     gap: var(--cal-gap);
   }
 

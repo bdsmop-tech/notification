@@ -1,10 +1,10 @@
-const CACHE_NAME = "reminder-pwa-v15";
+const CACHE_NAME = "reminder-pwa-v16";
 const URLS = [
   "/",
   "/web",
   "/offline",
   "/manifest.webmanifest",
-  "/app/static/style.css?v=21",
+  "/app/static/style.css?v=22",
   "/app/static/app.js?v=24",
   "/app/static/icon.png?v=2",
 ];
