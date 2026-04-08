@@ -31,6 +31,19 @@ async def is_friend(user_a: int, user_b: int) -> bool:
         return row is not None
 
 
+async def remove_friend(user_a: int, user_b: int) -> bool:
+    low, high = friend_pair(user_a, user_b)
+    async with SessionLocal() as session:
+        row = await session.scalar(
+            select(Friendship).where(Friendship.user_low_id == low, Friendship.user_high_id == high).limit(1)
+        )
+        if row is None:
+            return False
+        await session.delete(row)
+        await session.commit()
+        return True
+
+
 async def list_friends(user_id: int) -> list[int]:
     async with SessionLocal() as session:
         rows = await session.execute(

@@ -18,6 +18,7 @@ from bot.friends_service import (
     is_friend,
     list_friends,
     list_incoming_requests,
+    remove_friend,
     resolve_profile_name,
     respond_friend_request,
 )
@@ -521,6 +522,14 @@ async def friends_list(user_id: UserId) -> dict:
     for x in ids:
         out.append({"user_id": x, "display_name": await resolve_profile_name(x)})
     return {"friends": out}
+
+
+@router.delete("/friends/{friend_user_id}")
+async def friends_delete(friend_user_id: int, user_id: UserId) -> dict:
+    ok = await remove_friend(user_id, friend_user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="friendship not found")
+    return {"ok": True}
 
 
 @router.get("/friends/requests/incoming")

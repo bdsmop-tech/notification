@@ -22,6 +22,7 @@
     activePage: 0,
     historyPage: 0,
     outboxPage: 0,
+    historyMode: "own",
     detailId: null,
     editMode: null,
     calYear: new Date().getFullYear(),
@@ -345,6 +346,73 @@
     showErr("");
     const box = el("div", "stack");
     mainSheet.appendChild(box);
+    const modeRow = el("div", "row");
+    const ownBtn = el("button", state.historyMode === "own" ? "btn btn--small" : "btn btn--ghost btn--small", "Личная");
+    ownBtn.type = "button";
+    ownBtn.addEventListener("click", function () {
+      state.historyMode = "own";
+      render();
+    });
+    const sentBtn = el(
+      "button",
+      state.historyMode === "outbox" ? "btn btn--small" : "btn btn--ghost btn--small",
+      "Отправленные друзьям",
+    );
+    sentBtn.type = "button";
+    sentBtn.addEventListener("click", function () {
+      state.historyMode = "outbox";
+      render();
+    });
+    modeRow.appendChild(ownBtn);
+    modeRow.appendChild(sentBtn);
+    box.appendChild(modeRow);
+
+    if (state.historyMode === "outbox") {
+      try {
+        const out = await api("/api/friends/reminders/outbox?page=" + state.outboxPage);
+        if (!out.items || !out.items.length) {
+          box.appendChild(el("p", "hint", "Отправленных друзьям пока нет."));
+        } else {
+          out.items.forEach(function (x) {
+            box.appendChild(
+              el(
+                "p",
+                "hint",
+                (x.receiver_display_name || "Пользователь") +
+                  " | " +
+                  x.fire_at_sender_tz +
+                  " | " +
+                  x.status,
+              ),
+            );
+          });
+        }
+        const navOut = el("div", "row");
+        if (out.page > 0) {
+          const b = el("button", "btn btn--ghost", "← Пред.");
+          b.type = "button";
+          b.addEventListener("click", function () {
+            state.outboxPage = out.page - 1;
+            render();
+          });
+          navOut.appendChild(b);
+        }
+        if (out.page < out.pages - 1) {
+          const b = el("button", "btn btn--ghost", "След. →");
+          b.type = "button";
+          b.addEventListener("click", function () {
+            state.outboxPage = out.page + 1;
+            render();
+          });
+          navOut.appendChild(b);
+        }
+        if (navOut.children.length) box.appendChild(navOut);
+      } catch (e) {
+        box.appendChild(el("p", "err", String(e.message || e)));
+      }
+      return;
+    }
+
     try {
       const data = await api("/api/reminders/history?page=" + state.historyPage);
       if (!data.reminders.length) {
@@ -1013,6 +1081,25 @@
       if (!fr.friends || !fr.friends.length) {
         friendsPanel.appendChild(el("p", "hint", "Список друзей пуст."));
       } else {
+        const friendsList = el("div", "stack");
+        fr.friends.forEach(function (x) {
+          const row = el("div", "row row--wrap");
+          row.appendChild(el("span", "hint", x.display_name || "Пользователь"));
+          const del = el("button", "btn btn--ghost btn--small", "Удалить");
+          del.type = "button";
+          del.addEventListener("click", async function () {
+            try {
+              await api("/api/friends/" + x.user_id, { method: "DELETE" });
+              render();
+            } catch (e) {
+              showErr(String(e.message || e));
+            }
+          });
+          row.appendChild(del);
+          friendsList.appendChild(row);
+        });
+        friendsPanel.appendChild(friendsList);
+
         const friendSel = document.createElement("select");
         friendSel.className = "input";
         fr.friends.forEach(function (x) {
@@ -1029,6 +1116,25 @@
         dIn.placeholder = "Дата YYYY-MM-DD";
         const tIn = el("input", "input");
         tIn.placeholder = "Время 16:43";
+        const spamRg = spamModeRadiogroup("once", function (v) {
+          if (v !== "custom") custWrap.hidden = true;
+          else custWrap.hidden = false;
+        });
+        let spamPick = "once";
+        spamRg.el.querySelectorAll(".glass-opt").forEach(function (b) {
+          b.addEventListener("click", function () {
+            spamPick = b.getAttribute("data-value") || "once";
+            custWrap.hidden = spamPick !== "custom";
+          });
+        });
+        const custWrap = el("div", "spam-custom");
+        const cIn = el("input", "input");
+        cIn.type = "number";
+        cIn.min = "0";
+        cIn.value = "60";
+        custWrap.hidden = true;
+        custWrap.appendChild(el("small", "hint", "Секунды для своего интервала"));
+        custWrap.appendChild(cIn);
         const send = el("button", "btn", "Поставить другу");
         send.type = "button";
         send.addEventListener("click", async function () {
@@ -1039,8 +1145,8 @@
                 text: tx.value.trim(),
                 date: dIn.value.trim(),
                 time: tIn.value.trim(),
-                spam_variant: "once",
-                spam_interval_seconds: 0,
+                spam_variant: spamPick,
+                spam_interval_seconds: spamPick === "custom" ? parseInt(cIn.value, 10) || 0 : 0,
               }),
             });
             tx.value = "";
@@ -1055,6 +1161,9 @@
         friendsPanel.appendChild(tx);
         friendsPanel.appendChild(dIn);
         friendsPanel.appendChild(tIn);
+        friendsPanel.appendChild(el("label", "label label--glass", "Повтор"));
+        friendsPanel.appendChild(spamRg.el);
+        friendsPanel.appendChild(custWrap);
         friendsPanel.appendChild(send);
       }
     } catch (e) {
@@ -1062,34 +1171,6 @@
     }
     box.appendChild(friendsPanel);
 
-    const outPanel = el("div", "panel");
-    outPanel.appendChild(el("p", "label label--glass", "Отправленные друзьям"));
-    try {
-      const out = await api("/api/friends/reminders/outbox?page=" + state.outboxPage);
-      if (!out.items || !out.items.length) {
-        outPanel.appendChild(el("p", "hint", "Пока пусто."));
-      } else {
-        out.items.forEach(function (x) {
-          outPanel.appendChild(
-            el(
-              "p",
-              "hint",
-              "#" +
-                x.id +
-                " -> " +
-                (x.receiver_display_name || "Пользователь") +
-                " | " +
-                x.fire_at_sender_tz +
-                " | " +
-                x.status,
-            ),
-          );
-        });
-      }
-    } catch (e) {
-      outPanel.appendChild(el("p", "err", String(e.message || e)));
-    }
-    box.appendChild(outPanel);
   }
 
   function renderHelp() {
