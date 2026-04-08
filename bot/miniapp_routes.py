@@ -664,18 +664,23 @@ class WebLoginBody(BaseModel):
 
 
 @router.post("/web/login")
-async def web_login(body: WebLoginBody, response: Response) -> dict:
-    ex = await exchange_code_for_session(body.code)
+async def web_login(body: WebLoginBody, request: Request, response: Response) -> dict:
+    session_days = 3650
+    ex = await exchange_code_for_session(body.code, session_days=session_days)
     if not ex:
         raise HTTPException(status_code=401, detail="bad code")
     raw_token, _uid = ex
+    max_age = session_days * 24 * 60 * 60
+    secure_cookie = request.url.scheme == "https"
+    expires_at = _utcnow() + timedelta(seconds=max_age)
     response.set_cookie(
         "sid",
         raw_token,
         httponly=True,
-        secure=True,
+        secure=secure_cookie,
         samesite="lax",
-        max_age=30 * 24 * 60 * 60,
+        max_age=max_age,
+        expires=expires_at,
         path="/",
     )
     return {"ok": True}
