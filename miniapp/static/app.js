@@ -447,17 +447,52 @@
           box.appendChild(el("p", "hint", "Отправленных друзьям пока нет."));
         } else {
           out.items.forEach(function (x) {
-            box.appendChild(
-              el(
-                "p",
-                "hint",
-                (x.receiver_display_name || "Пользователь") +
-                  " | " +
-                  x.fire_at_sender_tz +
-                  " | " +
-                  x.status,
-              ),
+            const head =
+              (x.receiver_display_name || "Друг") +
+              " · " +
+              x.fire_at_sender_tz +
+              " · " +
+              x.status;
+            const t = el("span", "card__time", head);
+            const preview = (x.text || "").trim();
+            const tx = el(
+              "span",
+              "card__text",
+              preview.length > 140 ? preview.slice(0, 137) + "…" : preview || "—",
             );
+            const wrap = el("div", "card card--row");
+            const main = el("button", "card__main");
+            main.type = "button";
+            main.appendChild(t);
+            main.appendChild(tx);
+            main.addEventListener("click", function () {
+              state.historyMode = "outbox";
+              openDetail(x.reminder_id, "history");
+            });
+            wrap.appendChild(main);
+            if (x.reminder_active) {
+              const arch = el("button", "card__archive", "🗑");
+              arch.type = "button";
+              arch.setAttribute("aria-label", "В архив");
+              arch.addEventListener("click", function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (!askDeleteConfirm("Убрать в архив напоминание у друга?")) return;
+                showErr("");
+                api("/api/reminders/" + x.reminder_id + "/archive", {
+                  method: "POST",
+                  body: "{}",
+                })
+                  .then(function () {
+                    render();
+                  })
+                  .catch(function (e) {
+                    showErr(String(e.message || e));
+                  });
+              });
+              wrap.appendChild(arch);
+            }
+            box.appendChild(wrap);
           });
         }
         const navOut = el("div", "row");
@@ -743,6 +778,17 @@
       const r = await api("/api/reminders/" + state.detailId);
       box.appendChild(el("p", "detail__time", r.fire_at_local + fmtSpam(r)));
       box.appendChild(el("p", "detail__text", r.text));
+
+      if (!r.active) {
+        box.appendChild(
+          el("p", "hint", "Завершено или в архиве. Редактирование недоступно."),
+        );
+        const backOnly = el("button", "btn btn--ghost", "← Назад");
+        backOnly.type = "button";
+        backOnly.addEventListener("click", backFromDetail);
+        box.appendChild(backOnly);
+        return;
+      }
 
       const row = el("div", "row row--wrap");
       function btn(label, fn) {

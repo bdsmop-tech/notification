@@ -24,7 +24,6 @@ from bot.friends_service import (
     user_id_by_profile_name,
 )
 from bot.models import FriendReminder, Reminder
-from bot.reminder_worker import stop_reminder_by_id
 from bot.time_parse import parse_time_one_line, parse_trailing_text_and_time
 from bot.tma_validate import validate_telegram_init_data
 from bot.user_prefs import (
@@ -365,11 +364,19 @@ async def reminders_history(user_id: UserId, page: int = 0) -> dict:
 
 @router.get("/reminders/{reminder_id}")
 async def reminder_one(reminder_id: UUID, user_id: UserId) -> dict:
-    tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
-        if r is None or r.user_id != user_id:
+        if r is None:
             raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(
+                FriendReminder.reminder_id == reminder_id,
+                FriendReminder.sender_user_id == user_id,
+            )
+        )
+        if r.user_id != user_id and fr is None:
+            raise HTTPException(status_code=404, detail="not found")
+    tz = await get_user_zone(user_id)
     return _serialize_reminder(r, tz)
 
 
@@ -467,7 +474,15 @@ async def reminder_patch(reminder_id: UUID, body: PatchReminderBody, user_id: Us
     tz = await get_user_zone(user_id)
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
-        if r is None or r.user_id != user_id or not r.active:
+        if r is None or not r.active:
+            raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(
+                FriendReminder.reminder_id == reminder_id,
+                FriendReminder.sender_user_id == user_id,
+            )
+        )
+        if r.user_id != user_id and fr is None:
             raise HTTPException(status_code=404, detail="not found")
         if body.text is not None:
             r.text = body.text.strip()
@@ -481,6 +496,8 @@ async def reminder_patch(reminder_id: UUID, body: PatchReminderBody, user_id: Us
             if fire_at <= _utcnow():
                 raise HTTPException(status_code=400, detail="время должно быть в будущем")
             r.fire_at = fire_at
+            if fr is not None:
+                fr.fire_at_sender_tz = local_dt.strftime("%d.%m.%Y %H:%M")
         elif body.date is not None or body.time is not None:
             raise HTTPException(status_code=400, detail="укажите и date, и time")
         if body.spam_variant is not None:
@@ -504,7 +521,15 @@ async def reminder_patch_spam(reminder_id: UUID, body: PatchSpamBody, user_id: U
     spam, until_read = _spam_variant_to_db(body.spam_variant, body.spam_interval_seconds)
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
-        if r is None or r.user_id != user_id or not r.active:
+        if r is None or not r.active:
+            raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(
+                FriendReminder.reminder_id == reminder_id,
+                FriendReminder.sender_user_id == user_id,
+            )
+        )
+        if r.user_id != user_id and fr is None:
             raise HTTPException(status_code=404, detail="not found")
         r.spam_interval_seconds = spam
         r.spam_until_read = until_read
@@ -518,18 +543,26 @@ async def reminder_archive(reminder_id: UUID, user_id: UserId) -> dict:
     now = _utcnow()
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
-        if r is None or r.user_id != user_id:
+        if r is None:
+            raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(FriendReminder.reminder_id == reminder_id)
+        )
+        is_owner = r.user_id == user_id
+        is_sender = fr is not None and fr.sender_user_id == user_id
+        if not is_owner and not is_sender:
             raise HTTPException(status_code=404, detail="not found")
         await session.execute(
             update(Reminder)
             .where(Reminder.id == reminder_id)
             .values(active=False, closed_at=now)
         )
-        await session.execute(
-            update(FriendReminder)
-            .where(FriendReminder.reminder_id == reminder_id, FriendReminder.receiver_user_id == user_id)
-            .values(status="closed", closed_at=now)
-        )
+        if fr is not None:
+            await session.execute(
+                update(FriendReminder)
+                .where(FriendReminder.reminder_id == reminder_id)
+                .values(status="closed", closed_at=now)
+            )
         await session.commit()
     return {"ok": True}
 
@@ -544,9 +577,20 @@ async def reminder_snooze(reminder_id: UUID, body: SnoozeBody, user_id: UserId) 
     now = _utcnow()
     async with SessionLocal() as session:
         r = await session.get(Reminder, reminder_id)
-        if r is None or r.user_id != user_id or not r.active:
+        if r is None or not r.active:
+            raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(
+                FriendReminder.reminder_id == reminder_id,
+                FriendReminder.sender_user_id == user_id,
+            )
+        )
+        if r.user_id != user_id and fr is None:
             raise HTTPException(status_code=404, detail="not found")
         r.fire_at = now + timedelta(minutes=body.minutes)
+        if fr is not None:
+            local = r.fire_at.astimezone(tz)
+            fr.fire_at_sender_tz = local.strftime("%d.%m.%Y %H:%M")
         await session.commit()
         await session.refresh(r)
     return _serialize_reminder(r, tz)
@@ -554,15 +598,29 @@ async def reminder_snooze(reminder_id: UUID, body: SnoozeBody, user_id: UserId) 
 
 @router.post("/reminders/{reminder_id}/stop")
 async def reminder_stop(reminder_id: UUID, user_id: UserId) -> dict:
-    ok = await stop_reminder_by_id(reminder_id, user_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="not found")
+    now = _utcnow()
     async with SessionLocal() as session:
-        await session.execute(
-            update(FriendReminder)
-            .where(FriendReminder.reminder_id == reminder_id, FriendReminder.receiver_user_id == user_id)
-            .values(status="closed", closed_at=_utcnow())
+        r = await session.get(Reminder, reminder_id)
+        if r is None:
+            raise HTTPException(status_code=404, detail="not found")
+        fr = await session.scalar(
+            select(FriendReminder).where(FriendReminder.reminder_id == reminder_id)
         )
+        is_owner = r.user_id == user_id
+        is_sender = fr is not None and fr.sender_user_id == user_id
+        if not is_owner and not is_sender:
+            raise HTTPException(status_code=404, detail="not found")
+        await session.execute(
+            update(Reminder)
+            .where(Reminder.id == reminder_id)
+            .values(active=False, closed_at=now)
+        )
+        if fr is not None:
+            await session.execute(
+                update(FriendReminder)
+                .where(FriendReminder.reminder_id == reminder_id)
+                .values(status="closed", closed_at=now)
+            )
         await session.commit()
     return {"ok": True}
 
@@ -695,18 +753,21 @@ async def friend_reminders_outbox(user_id: UserId, page: int = 0) -> dict:
         total = int(count or 0)
         pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
         page = min(max(page, 0), pages - 1)
-        rows = await session.execute(
-            select(FriendReminder)
+        result = await session.execute(
+            select(FriendReminder, Reminder)
+            .join(Reminder, Reminder.id == FriendReminder.reminder_id)
             .where(FriendReminder.sender_user_id == user_id)
             .order_by(FriendReminder.created_at.desc())
             .offset(page * PAGE_SIZE)
             .limit(PAGE_SIZE)
         )
-        items = rows.scalars().all()
+        pairs = result.all()
     out = []
-    for x in items:
-        item = _serialize_friend_reminder(x)
-        item["receiver_display_name"] = await resolve_profile_name(x.receiver_user_id)
+    for fr, rem in pairs:
+        item = _serialize_friend_reminder(fr)
+        item["receiver_display_name"] = await resolve_profile_name(fr.receiver_user_id)
+        item["text"] = rem.text
+        item["reminder_active"] = rem.active
         out.append(item)
     return {"items": out, "page": page, "pages": pages, "total": total}
 
