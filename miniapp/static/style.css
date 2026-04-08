@@ -438,6 +438,79 @@ body {
   border-color: rgba(0, 127, 62, 0.18);
 }
 
+/* Строка: основная зона + 🗑 в архив (как в боте) */
+.card--row {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+
+.card--row:active {
+  transform: none;
+}
+
+.card--row .card__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  padding: 0.55rem 0.6rem 0.55rem 0.65rem;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card--row .card__main:active {
+  opacity: 0.9;
+}
+
+.card--row .card__main:focus-visible {
+  outline: 2px solid rgba(0, 127, 62, 0.35);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.card__archive {
+  flex: 0 0 2.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: 1px solid rgba(0, 127, 62, 0.12);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: rgba(255, 255, 255, 0.45);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+
+.card__archive:hover {
+  background: rgba(232, 249, 238, 0.9);
+}
+
+.card__archive:active {
+  background: rgba(0, 127, 62, 0.12);
+}
+
+.card__archive:focus-visible {
+  outline: 2px solid rgba(0, 127, 62, 0.45);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
 .card__time {
   font-size: 0.72rem;
   color: var(--text-muted);

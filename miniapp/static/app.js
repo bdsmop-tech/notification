@@ -197,17 +197,41 @@
     return ", один раз";
   }
 
-  function rowReminder(r, onPick) {
-    const li = el("button", "card");
+  /**
+   * Карточка напоминания. Если передан onArchive — строка с 🗑 (как в боте), иначе вся карточка — одна кнопка.
+   */
+  function rowReminder(r, onPick, onArchive) {
     const t = el("span", "card__time", r.fire_at_local + fmtSpam(r));
     const tx = el("span", "card__text", r.text);
-    li.appendChild(t);
-    li.appendChild(tx);
-    li.type = "button";
-    li.addEventListener("click", function () {
+    if (!onArchive) {
+      const li = el("button", "card");
+      li.appendChild(t);
+      li.appendChild(tx);
+      li.type = "button";
+      li.addEventListener("click", function () {
+        onPick(r);
+      });
+      return li;
+    }
+    const wrap = el("div", "card card--row");
+    const main = el("button", "card__main");
+    main.type = "button";
+    main.appendChild(t);
+    main.appendChild(tx);
+    main.addEventListener("click", function () {
       onPick(r);
     });
-    return li;
+    const arch = el("button", "card__archive", "🗑");
+    arch.type = "button";
+    arch.setAttribute("aria-label", "В архив");
+    arch.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      onArchive(r);
+    });
+    wrap.appendChild(main);
+    wrap.appendChild(arch);
+    return wrap;
   }
 
   async function renderActive() {
@@ -225,9 +249,24 @@
       } else {
         data.reminders.forEach(function (r) {
           box.appendChild(
-            rowReminder(r, function () {
-              openDetail(r.id, "active");
-            }),
+            rowReminder(
+              r,
+              function () {
+                openDetail(r.id, "active");
+              },
+              async function (rem) {
+                showErr("");
+                try {
+                  await api("/api/reminders/" + rem.id + "/archive", {
+                    method: "POST",
+                    body: "{}",
+                  });
+                  render();
+                } catch (e) {
+                  showErr(String(e.message || e));
+                }
+              },
+            ),
           );
         });
       }
@@ -266,9 +305,24 @@
       } else {
         data.reminders.forEach(function (r) {
           box.appendChild(
-            rowReminder(r, function () {
-              openDetail(r.id, "today");
-            }),
+            rowReminder(
+              r,
+              function () {
+                openDetail(r.id, "today");
+              },
+              async function (rem) {
+                showErr("");
+                try {
+                  await api("/api/reminders/" + rem.id + "/archive", {
+                    method: "POST",
+                    body: "{}",
+                  });
+                  render();
+                } catch (e) {
+                  showErr(String(e.message || e));
+                }
+              },
+            ),
           );
         });
       }

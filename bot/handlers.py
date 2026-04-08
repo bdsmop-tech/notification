@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
@@ -5,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import nulls_last, select, update
 from sqlalchemy.sql import func
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -46,6 +48,8 @@ from bot.user_prefs import (
 
 ASK_TEXT, ASK_DATE, ASK_TIME, ASK_SPAM, ASK_SPAM_CUSTOM = range(5)
 PAGE_SIZE = 5
+
+log = logging.getLogger(__name__)
 
 _PENDING_EDIT_USER_IDS: set[int] = set()
 
@@ -1148,6 +1152,9 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
     q = update.callback_query
     if q is None or q.data is None or update.effective_user is None:
         return
+    if not isinstance(q.data, str):
+        await q.answer("Обнови список — кнопка устарела.", show_alert=True)
+        return
     await q.answer()
     m = re.fullmatch(r"rm:([0-9a-fA-F-]{36})", q.data)
     if not m:
@@ -1158,7 +1165,11 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with SessionLocal() as session:
         r = await session.get(Reminder, rid)
         if r is None or r.user_id != uid:
-            await q.edit_message_text("Ошибка.")
+            try:
+                await q.edit_message_text("Ошибка.")
+            except BadRequest as e:
+                log.warning("on_delete_reminder edit error: %s", e)
+                await context.bot.send_message(chat_id=q.message.chat_id, text="Ошибка.")
             return
         await session.execute(
             update(Reminder)
@@ -1166,7 +1177,40 @@ async def on_delete_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE)
             .values(active=False, closed_at=now)
         )
         await session.commit()
-    await q.edit_message_text("Удалено (в истории).", reply_markup=main_menu_keyboard())
+    try:
+        await q.edit_message_text("Удалено (в истории).", reply_markup=main_menu_keyboard())
+    except BadRequest as e:
+        log.warning("on_delete_reminder success edit: %s", e)
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text="Удалено (в истории).",
+            reply_markup=main_menu_keyboard(),
+        )
+
+
+async def on_delete_reminder_conv_fb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Во время /new нажали 🗑 в списке — удалить и выйти из диалога."""
+    await on_delete_reminder(update, context)
+    if update.effective_user:
+        _clear_pending(update.effective_user.id)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def on_edit_menu_conv_fb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await on_edit_menu(update, context)
+    if update.effective_user:
+        _clear_pending(update.effective_user.id)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def on_list_page_conv_fb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await on_list_page(update, context)
+    if update.effective_user:
+        _clear_pending(update.effective_user.id)
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def on_edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1474,6 +1518,10 @@ def register_handlers(app: Application) -> None:
             ],
         },
         fallbacks=[
+            # Пока открыт /new, список активных всё ещё в чате — rm:/em:/lp: должны сбрасывать диалог
+            CallbackQueryHandler(on_delete_reminder_conv_fb, pattern=r"^rm:"),
+            CallbackQueryHandler(on_edit_menu_conv_fb, pattern=r"^em:"),
+            CallbackQueryHandler(on_list_page_conv_fb, pattern=r"^lp:\d+$"),
             CommandHandler("cancel", cmd_cancel),
             CallbackQueryHandler(conv_cancel_cb, pattern=r"^menu:cancel$"),
             CallbackQueryHandler(conv_hhist_back, pattern=r"^hhist:\d+$"),
