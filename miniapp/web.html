@@ -47,6 +47,9 @@
         let j = null;
         try { j = t ? JSON.parse(t) : null; } catch (_) {}
         if (!r.ok) throw new Error((j && (j.detail || j.error)) || ("Ошибка " + r.status));
+        try {
+          if (j && j.sid) localStorage.setItem("sid", j.sid);
+        } catch (_) {}
         msgEl.textContent = "Готово. Открываем приложение…";
         window.setTimeout(function () {
           window.location.href = "/";

@@ -54,6 +54,12 @@
     const d = tg && tg.initData ? tg.initData : "";
     const h = {};
     if (d) h.Authorization = "tma " + d;
+    if (!d) {
+      try {
+        const sid = localStorage.getItem("sid") || "";
+        if (sid) h.Authorization = "sid " + sid;
+      } catch (_) {}
+    }
     if (json) h["Content-Type"] = "application/json";
     return h;
   }

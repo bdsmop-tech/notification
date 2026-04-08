@@ -66,6 +66,14 @@ async def require_user(request: Request, authorization: str | None = Header(None
         if uid:
             return uid
 
+    # Web/PWA header session fallback (for WebView/PWA where cookies can be unstable)
+    if authorization and authorization.startswith("sid "):
+        raw_sid = authorization[4:].strip()
+        if raw_sid:
+            uid = await user_id_from_session(raw_sid)
+            if uid:
+                return uid
+
     raise HTTPException(status_code=401, detail="Missing auth")
 
 
@@ -683,7 +691,7 @@ async def web_login(body: WebLoginBody, request: Request, response: Response) ->
         expires=expires_at,
         path="/",
     )
-    return {"ok": True}
+    return {"ok": True, "sid": raw_token, "expires_at": expires_at.isoformat()}
 
 
 @router.post("/web/logout")
