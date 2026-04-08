@@ -4,8 +4,8 @@ const URLS = [
   "/web",
   "/offline",
   "/manifest.webmanifest",
-  "/app/static/style.css?v=14",
-  "/app/static/app.js?v=14",
+  "/app/static/style.css?v=15",
+  "/app/static/app.js?v=15",
   "/app/static/icon.svg",
 ];
 
