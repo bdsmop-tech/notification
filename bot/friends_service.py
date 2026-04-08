@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from bot.database import SessionLocal
 from bot.models import FriendRequest, Friendship, UserSettings
@@ -20,6 +20,17 @@ async def user_exists(user_id: int) -> bool:
     async with SessionLocal() as session:
         us = await session.scalar(select(UserSettings.user_id).where(UserSettings.user_id == user_id).limit(1))
         return us is not None
+
+
+async def user_id_by_profile_name(profile_name: str) -> int | None:
+    name = (profile_name or "").strip()
+    if not name:
+        return None
+    async with SessionLocal() as session:
+        uid = await session.scalar(
+            select(UserSettings.user_id).where(func.lower(UserSettings.profile_name) == name.lower()).limit(1)
+        )
+        return int(uid) if uid is not None else None
 
 
 async def is_friend(user_a: int, user_b: int) -> bool:

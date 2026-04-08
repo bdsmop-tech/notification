@@ -1,6 +1,8 @@
 from datetime import timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sqlalchemy.exc import IntegrityError
+
 from bot.config import DEFAULT_TZ
 from bot.database import SessionLocal
 from bot.models import UserSettings
@@ -98,7 +100,11 @@ async def set_user_profile_name(user_id: int, profile_name: str) -> str:
             session.add(UserSettings(user_id=user_id, profile_name=name))
         else:
             row.profile_name = name
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise ValueError("duplicate profile name") from None
     return name
 
 

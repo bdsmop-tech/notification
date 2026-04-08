@@ -21,6 +21,7 @@ from bot.friends_service import (
     remove_friend,
     resolve_profile_name,
     respond_friend_request,
+    user_id_by_profile_name,
 )
 from bot.models import FriendReminder, Reminder
 from bot.reminder_worker import stop_reminder_by_id
@@ -209,7 +210,10 @@ class ProfileNameBody(BaseModel):
 async def api_set_profile_name(body: ProfileNameBody, user_id: UserId) -> dict:
     try:
         name = await set_user_profile_name(user_id, body.profile_name)
-    except ValueError:
+    except ValueError as e:
+        code = str(e)
+        if code == "duplicate profile name":
+            raise HTTPException(status_code=400, detail="Это имя профиля уже занято.") from None
         raise HTTPException(status_code=400, detail="invalid profile_name") from None
     return {"profile_name": name}
 
@@ -512,7 +516,7 @@ async def reminder_stop(reminder_id: UUID, user_id: UserId) -> dict:
 
 
 class CreateFriendRequestBody(BaseModel):
-    telegram_user_id: int
+    profile_name: str = Field(min_length=2, max_length=64)
 
 
 @router.get("/friends")
@@ -545,8 +549,11 @@ async def friends_requests_incoming(user_id: UserId) -> dict:
 
 @router.post("/friends/requests")
 async def friends_request_create(body: CreateFriendRequestBody, user_id: UserId) -> dict:
+    target_user_id = await user_id_by_profile_name(body.profile_name)
+    if target_user_id is None:
+        raise HTTPException(status_code=404, detail="Пользователь с таким именем не найден.")
     try:
-        req = await create_friend_request(user_id, body.telegram_user_id)
+        req = await create_friend_request(user_id, target_user_id)
     except ValueError as e:
         code = str(e)
         if code == "cannot_add_self":

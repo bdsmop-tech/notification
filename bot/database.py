@@ -38,6 +38,15 @@ async def init_db() -> None:
         )
         await conn.execute(
             text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_user_settings_profile_name_lower
+                ON user_settings (LOWER(profile_name))
+                WHERE profile_name IS NOT NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
                 "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS quiet_start_hour INTEGER NOT NULL DEFAULT 23"
             )
         )

@@ -33,6 +33,7 @@ from bot.friends_service import (
     list_incoming_requests,
     resolve_profile_name,
     respond_friend_request,
+    user_id_by_profile_name,
 )
 from bot.keyboards import (
     back_to_menu_row,
@@ -835,7 +836,7 @@ async def _friends_menu_text(uid: int) -> str:
         "Друзья\n\n"
         f"• Подтверждённых друзей: {len(friends)}\n"
         f"• Входящих заявок: {len(reqs)}\n\n"
-        "Добавляй друга по Telegram ID."
+        "Добавляй друга по имени профиля."
     )
 
 
@@ -847,9 +848,9 @@ async def on_friends_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     uid = update.effective_user.id
     data = q.data
     if data == "fr:add":
-        context.user_data["await_friend_id"] = True
+        context.user_data["await_friend_name"] = True
         await q.edit_message_text(
-            "Отправь Telegram ID друга одним сообщением (только число).",
+            "Отправь имя профиля друга одним сообщением.",
             reply_markup=InlineKeyboardMarkup([back_to_menu_row()]),
         )
         return
@@ -930,7 +931,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if data != "menu:tz":
         context.user_data.pop("await_tz_offset", None)
     if data != "menu:friends":
-        context.user_data.pop("await_friend_id", None)
+        context.user_data.pop("await_friend_name", None)
     if data != "menu:settings":
         context.user_data.pop("await_profile_name", None)
     if data == "menu:main":
@@ -1133,21 +1134,27 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         try:
             saved = await set_user_profile_name(update.effective_user.id, name)
-        except ValueError:
-            await update.message.reply_text("Не удалось сохранить имя профиля.")
+        except ValueError as e:
+            if str(e) == "duplicate profile name":
+                await update.message.reply_text("Это имя профиля уже занято, выберите другое.")
+            else:
+                await update.message.reply_text("Не удалось сохранить имя профиля.")
             return
         context.user_data.pop("await_profile_name", None)
         await update.message.reply_text(f"Имя профиля сохранено: {saved}", reply_markup=main_menu_keyboard())
         return
 
-    if context.user_data.get("await_friend_id"):
+    if context.user_data.get("await_friend_name"):
         if update.message is None or not update.message.text or update.effective_user is None:
             return
-        raw = update.message.text.strip()
-        if not re.fullmatch(r"\d{4,20}", raw):
-            await update.message.reply_text("Нужен Telegram ID числом, например 123456789.")
+        profile_name = update.message.text.strip()
+        if len(profile_name) < 2:
+            await update.message.reply_text("Имя профиля слишком короткое.")
             return
-        target = int(raw)
+        target = await user_id_by_profile_name(profile_name)
+        if target is None:
+            await update.message.reply_text("Пользователь с таким именем профиля не найден.")
+            return
         uid = update.effective_user.id
         try:
             req = await create_friend_request(uid, target)
@@ -1165,7 +1172,7 @@ async def on_tz_offset_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             else:
                 await update.message.reply_text("Не удалось отправить заявку.")
             return
-        context.user_data.pop("await_friend_id", None)
+        context.user_data.pop("await_friend_name", None)
         await update.message.reply_text("Заявка отправлена.", reply_markup=main_menu_keyboard())
         if req.status == "pending":
             try:

@@ -1010,10 +1010,10 @@
     mainSheet.appendChild(box);
 
     const addPanel = el("div", "panel");
-    addPanel.appendChild(el("p", "label label--glass", "Добавить по Telegram ID"));
+    addPanel.appendChild(el("p", "label label--glass", "Добавить по имени профиля"));
     const addRow = el("div", "row");
     const idIn = el("input", "input");
-    idIn.placeholder = "например 123456789";
+    idIn.placeholder = "например Андрей";
     const addBtn = el("button", "btn", "Отправить заявку");
     addBtn.type = "button";
     addBtn.addEventListener("click", async function () {
@@ -1021,7 +1021,7 @@
       try {
         await api("/api/friends/requests", {
           method: "POST",
-          body: JSON.stringify({ telegram_user_id: parseInt(idIn.value, 10) || 0 }),
+          body: JSON.stringify({ profile_name: idIn.value.trim() }),
         });
         idIn.value = "";
         render();
